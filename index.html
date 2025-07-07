@@ -200,24 +200,22 @@ function setupMusic() {
         penis: new Tone.MembraneSynth({ pitchDecay: 0.01, octaves: 4, envelope: { attack: 0.001, decay: 0.1, sustain: 0.01, release: 0.1 } }).toDestination(),
         boobs: new Tone.FMSynth({ harmonicity: 0.5, modulationIndex: 3, envelope: { attack: 0.05, decay: 0.2, sustain: 0, release: 0.1 }, modulation: { type: "sine" }, modulationEnvelope: { attack: 0.05, decay: 0.1, sustain: 0, release: 0.1 } }).toDestination(),
         love: new Tone.MetalSynth({ frequency: 400, harmonicity: 8, modulationIndex: 20, envelope: { attack: 0.01, decay: 0.4, release: 0.2 }, resonance: 4000 }).toDestination(),
-        // --- NEW: Crying Baby Sound ---
         babyWah: new Tone.FMSynth({
-            harmonicity: 3.1,
-            modulationIndex: 15,
-            detune: 0,
-            oscillator: { type: "sine" },
+            harmonicity: 3.1, modulationIndex: 15, detune: 0, oscillator: { type: "sine" },
             envelope: { attack: 0.02, decay: 0.2, sustain: 0.5, release: 0.8 },
-            modulation: { type: "square" },
-            modulationEnvelope: { attack: 0.05, decay: 0.1, sustain: 0.8, release: 0.5 }
-        }).toDestination()
+            modulation: { type: "square" }, modulationEnvelope: { attack: 0.05, decay: 0.1, sustain: 0.8, release: 0.5 }
+        }).toDestination(),
+        pop: new Tone.PluckSynth().toDestination(),
+        chomp: new Tone.NoiseSynth({ noise: { type: 'brown' }, envelope: { attack: 0.01, decay: 0.1, sustain: 0 } }).toDestination(),
+        zap: new Tone.Synth({ oscillator: { type: "sawtooth" }, envelope: { attack: 0.005, decay: 0.05, sustain: 0, release: 0.1 } }).toDestination(),
+        bounce: new Tone.Synth({ oscillator: { type: "triangle" }, envelope: { attack: 0.001, decay: 0.05, sustain: 0, release: 0.05 } }).toDestination(),
+        explosion: new Tone.NoiseSynth({ noise: { type: 'white' }, envelope: { attack: 0.001, decay: 0.8, sustain: 0.01, release: 1.0, attackCurve: 'exponential' } }).toDestination()
     };
-    synths.bass.volume.value = -10;
-    synths.snare.volume.value = -6;
-    synths.nag.volume.value = -8;
-    synths.penis.volume.value = -12;
-    synths.boobs.volume.value = -8;
-    synths.love.volume.value = -15;
-    synths.babyWah.volume.value = -3; // It should be loud!
+    synths.bass.volume.value = -10; synths.snare.volume.value = -6; synths.nag.volume.value = -8;
+    synths.penis.volume.value = -12; synths.boobs.volume.value = -8; synths.love.volume.value = -15;
+    synths.babyWah.volume.value = -3;
+    synths.pop.volume.value = -10; synths.chomp.volume.value = -8; synths.zap.volume.value = -12;
+    synths.bounce.volume.value = -15; synths.explosion.volume.value = -5;
 
     const patterns = {
         intro:  { lead: [],                            bass: ['C2'], kick: true, snare: false },
@@ -323,9 +321,10 @@ class Player {
             powerupStatusEl.textContent = `${this.powerupType.replace('_', ' ').toUpperCase()}! ${Math.ceil(this.powerupTimer / 60)}s`;
             if (this.powerupTimer <= 0) this.resetPowerup();
         } else {
-            const weaponTypes = ['normal', 'mortar', 'multi', 'spiral', 'goose', 'love', 'random', 'penis', 'boobs', 'grandma', 'crying_baby'];
+            // Updated list of weapon types to display in status
+            const weaponTypes = ['normal', 'mortar', 'multi', 'spiral', 'goose', 'love', 'random', 'penis', 'boobs', 'grandma', 'crying_baby', 'bear_poop', 'pacman', 'pokemon', 'bouncing', 'snowball'];
             if (weaponTypes.includes(this.powerupType)) {
-                 powerupStatusEl.textContent = `${this.powerupType.toUpperCase()}`;
+                 powerupStatusEl.textContent = `${this.powerupType.replace('_', ' ').toUpperCase()}`;
             }
         }
         this.draw();
@@ -364,6 +363,9 @@ class Player {
         if (category === 'jump') {
             this.powerupTimer = (type === 'slam') ? 1200 : 600;
             if (type === 'triple_jump') this.maxJumps = 3;
+        } else if (category === 'weapon') {
+            // Weapon power-ups last for 15 seconds
+            this.powerupTimer = 900; // 15 seconds * 60 frames/sec
         }
         this.jumpsRemaining = this.maxJumps;
     }
@@ -383,11 +385,11 @@ class Obstacle {
         this.strength = strength; this.health = obstacleTypes[strength].health; this.color = obstacleTypes[strength].color;
         this.naggingGrandmas = 0;
         this.isMelting = false; 
-        this.animOffset = Math.random() * 100; // --- NEW: For Wiggle Animation
+        this.animOffset = Math.random() * 100;
+        this.snowballCount = 0; // For snowball power-up
     }
     draw() {
         ctx.save();
-        // --- NEW: Wiggle Animation ---
         const wiggleAmount = 5;
         const wiggleSpeed = 0.05;
         const wiggleOffset = Math.sin((frameCount + this.animOffset) * wiggleSpeed) * wiggleAmount;
@@ -402,6 +404,16 @@ class Obstacle {
              ctx.globalAlpha = this.health / obstacleTypes[this.strength].health;
         }
         ctx.fillRect(this.x, this.y, this.width, this.height);
+        
+        // Draw snowball count
+        if (this.snowballCount > 0) {
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
+            ctx.font = '12px "Press Start 2P"';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(this.snowballCount, this.x + this.width / 2, this.y - 10);
+        }
+
         ctx.restore();
     }
     update() {
@@ -439,12 +451,33 @@ class Bullet {
         }
         else if (type === 'boobs') { this.state = 'growing'; this.currentSize = 5; this.maxSize = 40; this.growSpeed = 2; this.width = this.currentSize * 2; this.height = this.currentSize; this.dx = 0; }
         else if (type === 'grandma') { this.width = 15; this.height = 15; this.state = 'seeking_orbit'; this.seek(); }
-        // --- NEW: Crying Baby Logic ---
         else if (type === 'crying_baby') {
-            this.width = 20; this.height = 20;
-            this.state = 'seeking';
-            this.damage = 5; // Shockwave damage
-            this.seek();
+            this.width = 20; this.height = 20; this.state = 'seeking'; this.damage = 5; this.seek();
+        }
+        else if (type === 'bear_poop') {
+            this.width = 30; this.height = 30; this.damage = 1;
+            this.dx = 8; this.dy = 0;
+        }
+        else if (type === 'pacman') {
+            this.width = 25; this.height = 25; this.damage = 1000;
+            this.dx = 10; this.mouthAngle = 0; this.mouthSpeed = 0.2;
+        }
+        else if (type === 'pokemon') {
+            this.width = 20; this.height = 20; this.damage = 5;
+            const elements = ['fire', 'water', 'electric'];
+            this.element = elements[Math.floor(Math.random() * elements.length)];
+            this.dx = 8;
+        }
+        else if (type === 'bouncing') {
+            this.width = 10; this.height = 10; this.damage = 2;
+            this.dx = 8 * (Math.random() < 0.5 ? 1 : -1);
+            this.dy = 8 * (Math.random() < 0.5 ? 1 : -1);
+        }
+        else if (type === 'snowball') {
+            this.width = 10; this.height = 10; this.damage = 0;
+            this.dx = 8;
+            this.mergeCount = 1;
+            this.maxMergeCount = 20;
         }
     }
     draw() {
@@ -473,23 +506,61 @@ class Bullet {
                 if (this.animFrame % 20 < 10) { ctx.fillRect(5, 12, 5, 2); particles.push(new Particle(this.x, this.y, 'nag')); }
                 ctx.restore();
                 break;
-            // --- NEW: Crying Baby Drawing ---
             case 'crying_baby':
-                ctx.fillStyle = '#f0d9c4'; // Skin tone
+                ctx.fillStyle = '#f0d9c4'; ctx.beginPath(); ctx.arc(this.x, this.y, this.width / 2, 0, Math.PI * 2); ctx.fill();
+                ctx.fillStyle = '#000'; ctx.fillRect(this.x - 5, this.y - 2, 2, 2); ctx.fillRect(this.x + 3, this.y - 2, 2, 2);
+                ctx.strokeStyle = '#000'; ctx.beginPath(); ctx.arc(this.x, this.y + 5, 4, 0, Math.PI); ctx.stroke();
+                if (frameCount % 5 === 0) { particles.push(new Particle(this.x, this.y + 10, 'tear')); }
+                break;
+            case 'bear_poop':
+                ctx.fillStyle = '#8B4513';
+                ctx.fillRect(this.x, this.y, this.width, this.height);
                 ctx.beginPath();
-                ctx.arc(this.x, this.y, this.width / 2, 0, Math.PI * 2);
-                ctx.fill();
-                ctx.fillStyle = '#000'; // Eyes
-                ctx.fillRect(this.x - 5, this.y - 2, 2, 2);
-                ctx.fillRect(this.x + 3, this.y - 2, 2, 2);
-                ctx.strokeStyle = '#000'; // Crying mouth
+                ctx.arc(this.x + 5, this.y, 5, 0, Math.PI * 2); ctx.fill();
+                ctx.arc(this.x + this.width - 5, this.y, 5, 0, Math.PI * 2); ctx.fill();
+                break;
+            case 'pacman':
+                ctx.fillStyle = '#FFD700';
                 ctx.beginPath();
-                ctx.arc(this.x, this.y + 5, 4, 0, Math.PI);
-                ctx.stroke();
-                // Add tear particles
-                if (frameCount % 5 === 0) {
-                    particles.push(new Particle(this.x, this.y + 10, 'tear'));
+                this.mouthAngle += this.mouthSpeed;
+                if (this.mouthAngle > Math.PI / 4 || this.mouthAngle < 0) {
+                    this.mouthSpeed *= -1;
                 }
+                ctx.arc(this.x + this.width / 2, this.y + this.height / 2, this.width / 2, this.mouthAngle, Math.PI * 2 - this.mouthAngle);
+                ctx.lineTo(this.x + this.width / 2, this.y + this.height / 2);
+                ctx.closePath();
+                ctx.fill();
+                break;
+            case 'pokemon':
+                let pokemonColor;
+                let pokemonText;
+                switch(this.element) {
+                    case 'fire': pokemonColor = '#FF4500'; pokemonText = 'F'; break;
+                    case 'water': pokemonColor = '#1E90FF'; pokemonText = 'W'; break;
+                    case 'electric': pokemonColor = '#FFD700'; pokemonText = 'E'; break;
+                }
+                ctx.fillStyle = pokemonColor;
+                ctx.beginPath();
+                ctx.arc(this.x + this.width / 2, this.y + this.height / 2, this.width / 2, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.fillStyle = '#000';
+                ctx.font = '12px "Press Start 2P"';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillText(pokemonText, this.x + this.width / 2, this.y + this.height / 2 + 2);
+                break;
+            case 'bouncing':
+                ctx.fillStyle = '#00FFFF';
+                ctx.beginPath();
+                ctx.arc(this.x + this.width / 2, this.y + this.height / 2, this.width / 2, 0, Math.PI * 2);
+                ctx.fill();
+                break;
+            case 'snowball':
+                ctx.fillStyle = `rgba(255, 255, 255, ${0.5 + (this.mergeCount / this.maxMergeCount) * 0.5})`;
+                const currentSize = this.width + (this.mergeCount / this.maxMergeCount) * 20;
+                ctx.beginPath();
+                ctx.arc(this.x + this.width / 2, this.y + this.height / 2, currentSize / 2, 0, Math.PI * 2);
+                ctx.fill();
                 break;
             default:
                 ctx.fillStyle = '#9b59b6'; ctx.fillRect(this.x, this.y, this.width, this.height);
@@ -502,8 +573,19 @@ class Bullet {
             this.stuckTo.prevX = this.stuckTo.x; this.stuckTo.prevY = this.stuckTo.y;
             this.life--;
             if (this.life <= 0) {
-                for(let i=0; i<10; i++) particles.push(new Particle(this.x, this.y, 'love'));
-                this.stuckTo.takeDamage(5); this.remove = true;
+                if (this.type === 'love') {
+                    for(let i=0; i<10; i++) particles.push(new Particle(this.x, this.y, 'love'));
+                    this.stuckTo.takeDamage(5);
+                } else if (this.type === 'snowball') {
+                    // Orgasm explosion!
+                    if (music && music.synths.explosion) music.synths.explosion.triggerAttackRelease('C4', '1s');
+                    // MODIFIED: Increased number of orgasm particles and varied their properties
+                    for(let i=0; i<80; i++) { // Increased from 50 to 80 particles
+                        particles.push(new Particle(this.x, this.y, 'orgasm', Math.random() * 20 + 10)); // Pass a random initial size
+                    }
+                    this.stuckTo.takeDamage(this.mergeCount * 10);
+                }
+                this.remove = true;
             }
         } else {
             switch(this.state) {
@@ -530,6 +612,18 @@ class Bullet {
                 case 'flying':
                 default:
                     if (this.type === 'mortar') this.dy += this.gravity;
+                    
+                    if (this.type === 'bouncing') {
+                        if (this.x + this.width > canvas.width || this.x < 0) {
+                            this.dx *= -1;
+                            if (music && music.synths.bounce) music.synths.bounce.triggerAttackRelease('C5', '32n');
+                        }
+                        if (this.y + this.height > canvas.height || this.y < 0) {
+                            this.dy *= -1;
+                            if (music && music.synths.bounce) music.synths.bounce.triggerAttackRelease('G4', '32n');
+                        }
+                    }
+
                     this.x += this.dx; this.y += this.dy;
             }
         }
@@ -548,11 +642,12 @@ class Bullet {
             let speed = 8;
             if (this.type === 'penis') speed = 15;
             if (this.type === 'crying_baby') speed = 3;
+            if (this.type === 'pokemon') speed = 10;
 
             const targetAngle = Math.atan2(this.target.y - this.y, this.target.x - this.x);
             this.dx = Math.cos(targetAngle) * speed; this.dy = Math.sin(targetAngle) * speed;
             this.angle = targetAngle;
-        } else if (this.type === 'penis' || this.type === 'grandma' || this.type === 'crying_baby') {
+        } else if (this.type === 'penis' || this.type === 'grandma' || this.type === 'crying_baby' || this.type === 'pokemon') {
             this.remove = true;
         }
     }
@@ -575,36 +670,60 @@ class Collectible {
 }
 
 class Particle {
-    constructor(x, y, type) {
+    // MODIFIED: Added optional initialSize for 'orgasm' particles
+    constructor(x, y, type, initialSize = 10) {
         this.x = x; this.y = y; this.type = type; this.life = 60;
         this.dx = (Math.random() - 0.5) * 6;
         this.dy = (Math.random() - 0.5) * 6;
         this.gravity = 0.1;
         this.isStuck = false;
+        this.color = '#fff';
+        // For elemental particles
+        if (type === 'fire') { this.color = '#FF4500'; this.dx = (Math.random() - 0.5) * 8; this.dy = -Math.random() * 8; this.life = 30; }
+        else if (type === 'water') { this.color = '#1E90FF'; this.dx = (Math.random() - 0.5) * 6; this.dy = Math.random() * 6; this.life = 40; }
+        else if (type === 'electric') { this.color = '#FFD700'; this.dx = (Math.random() - 0.5) * 10; this.dy = (Math.random() - 0.5) * 10; this.life = 20; }
+        // NEW: Properties for 'orgasm' particle
+        else if (type === 'orgasm') {
+            this.initialLife = 60; // Store initial life for fade calculation
+            this.dx = (Math.random() - 0.5) * 10; // Wider spread
+            this.dy = (Math.random() - 0.5) * 10; // Wider spread
+            this.size = initialSize; // Initial size passed in
+            this.growthRate = Math.random() * 0.5 + 0.1; // Grow slightly
+            this.color = `rgb(${Math.floor(Math.random() * 255)}, ${Math.floor(Math.random() * 255)}, ${Math.floor(Math.random() * 255)})`; // Random color
+        }
     }
     draw() {
-        ctx.globalAlpha = this.life / 60;
+        ctx.globalAlpha = this.life / this.initialLife; // Use initialLife for consistent fading
         if (this.type === 'love') {
             ctx.fillStyle = '#ff69b4'; ctx.font = "15px 'Press Start 2P'"; ctx.fillText("❤", this.x, this.y);
-        // --- NEW: Tear & Shockwave Particles ---
         } else if (this.type === 'tear') {
-            ctx.fillStyle = '#aed6f1';
-            ctx.beginPath();
-            ctx.arc(this.x, this.y, 3, 0, Math.PI * 2);
-            ctx.fill();
+            ctx.fillStyle = '#aed6f1'; ctx.beginPath(); ctx.arc(this.x, this.y, 3, 0, Math.PI * 2); ctx.fill();
         } else if (this.type === 'shockwave') {
-            ctx.strokeStyle = '#ffffff';
-            ctx.lineWidth = 2;
-            ctx.beginPath();
-            ctx.arc(this.x, this.y, (60 - this.life) / 4, 0, Math.PI * 2);
-            ctx.stroke();
+            ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(this.x, this.y, (60 - this.life) / 4, 0, Math.PI * 2); ctx.stroke();
         } else if (this.type === 'milk' || this.type === 'sticky_goo') {
-            ctx.fillStyle = this.type === 'milk' ? '#ffffff' : '#f5f5f5';
-            ctx.fillRect(this.x, this.y, 4, 4);
+            ctx.fillStyle = this.type === 'milk' ? '#ffffff' : '#f5f5f5'; ctx.fillRect(this.x, this.y, 4, 4);
         } else if (this.type === 'nag') {
             ctx.fillStyle = '#aaaaaa'; ctx.font = "8px 'Press Start 2P'"; ctx.fillText("...", this.x, this.y);
         } else if (this.type === 'boredom') {
             ctx.fillStyle = '#ffffff'; ctx.font = "15px 'Press Start 2P'"; ctx.fillText("POOF!", this.x, this.y);
+        }
+        else if (this.type === 'poop') {
+            ctx.fillStyle = '#5A3D2B';
+            ctx.beginPath();
+            ctx.arc(this.x, this.y, 8, 0, Math.PI * 2);
+            ctx.fill();
+        } else if (this.type === 'elemental') {
+            ctx.fillStyle = this.color;
+            ctx.beginPath();
+            ctx.arc(this.x, this.y, 5, 0, Math.PI * 2);
+            ctx.fill();
+        } else if (this.type === 'orgasm') {
+            // MODIFIED: Dynamic size and random color
+            ctx.fillStyle = this.color;
+            ctx.font = `${this.size}px "Press Start 2P"`; // Use dynamic size
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText("BOOM!", this.x, this.y);
         }
         ctx.globalAlpha = 1.0;
     }
@@ -612,7 +731,7 @@ class Particle {
         this.life--;
         if (this.type === 'sticky_goo') {
             if (this.isStuck) {
-                this.dy = 0.5; // Ooze down
+                this.dy = 0.5;
             } else {
                 this.dy += this.gravity;
                 if (this.x <= 0 || this.x >= canvas.width || this.y <= 0) {
@@ -620,8 +739,11 @@ class Particle {
                     this.dx = 0;
                 }
             }
-        } else if (this.type === 'milk' || this.type === 'tear') {
+        } else if (this.type === 'milk' || this.type === 'tear' || this.type === 'poop' || this.type === 'elemental') {
             this.dy += this.gravity;
+        } else if (this.type === 'orgasm') {
+            this.size += this.growthRate; // Grow the text size
+            this.dy += this.gravity * 0.5; // Slightly affected by gravity
         }
         this.x += this.dx; this.y += this.dy;
         this.draw();
@@ -691,47 +813,61 @@ function gameLoop() {
 
     bullets.forEach((b, bIndex) => {
         b.update();
-        if (b.remove || b.x > canvas.width || b.x < 0 || b.y > canvas.height || b.y < 0) {
+        if (b.remove || b.x > canvas.width + 50 || b.x < -50 || b.y > canvas.height + 50 || b.y < -50) {
             if (b.type === 'grandma' && b.target) b.target.naggingGrandmas--;
             bullets.splice(bIndex, 1);
         }
         obstacles.forEach((o, oIndex) => {
             if (checkCollision(b, o)) {
                 if (!bullets.includes(b)) return;
-                
-                // --- NEW: Crying Baby Collision ---
+
                 if (b.type === 'crying_baby') {
                     if (music && music.synths.babyWah) music.synths.babyWah.triggerAttackRelease('A5', '0.5s');
-                    
-                    for (let i = 0; i < 20; i++) {
-                         particles.push(new Particle(b.x, b.y, 'shockwave'));
-                    }
-
+                    for (let i = 0; i < 20; i++) particles.push(new Particle(b.x, b.y, 'shockwave'));
                     obstacles.forEach(otherObstacle => {
                         const dist = Math.hypot(b.x - otherObstacle.x, b.y - otherObstacle.y);
-                        if (dist < 100) { // Shockwave radius
-                            otherObstacle.takeDamage(b.damage);
-                        }
+                        if (dist < 100) { otherObstacle.takeDamage(b.damage); }
                     });
                     bullets.splice(bIndex, 1);
                 }
                 else if (b.type === 'boobs') {
                     for (let i = 0; i < 30; i++) particles.push(new Particle(b.x, b.y, 'milk'));
                 }
-                
                 else if (b.type === 'love' && !b.stuckTo) { b.stuckTo = o; } 
                 else if (b.type === 'penis') {
-                    if (b.liquidType === 'yellow') {
-                        o.isMelting = true;
-                    } else {
-                        o.takeDamage(1000); // Instant kill
-                        for (let i = 0; i < 20; i++) {
-                            particles.push(new Particle(b.x, b.y, 'sticky_goo'));
-                        }
-                    }
+                    if (b.liquidType === 'yellow') { o.isMelting = true; } 
+                    else { o.takeDamage(1000); for (let i = 0; i < 20; i++) particles.push(new Particle(b.x, b.y, 'sticky_goo')); }
                     bullets.splice(bIndex, 1);
                 }
-                else if (b.type !== 'love' && b.type !== 'grandma') {
+                else if (b.type === 'bear_poop') {
+                    if (music && music.synths.pop) music.synths.pop.triggerAttackRelease('C4', '16n');
+                    particles.push(new Particle(b.x, b.y, 'poop'));
+                    o.takeDamage(b.damage);
+                    bullets.splice(bIndex, 1);
+                }
+                else if (b.type === 'pacman') {
+                    if (music && music.synths.chomp) music.synths.chomp.triggerAttackRelease('16n');
+                    o.takeDamage(b.damage);
+                }
+                else if (b.type === 'pokemon') {
+                    if (music && music.synths.zap) music.synths.zap.triggerAttackRelease('E5', '16n');
+                    for (let i = 0; i < 15; i++) particles.push(new Particle(b.x, b.y, 'elemental', b.element));
+                    o.takeDamage(b.damage);
+                    bullets.splice(bIndex, 1);
+                }
+                else if (b.type === 'snowball') {
+                    let existingSnowball = bullets.find(bullet => bullet.type === 'snowball' && bullet.stuckTo === o);
+                    if (existingSnowball) {
+                        existingSnowball.mergeCount++;
+                        if (existingSnowball.mergeCount >= existingSnowball.maxMergeCount) {
+                            existingSnowball.life = 1;
+                        }
+                        bullets.splice(bIndex, 1);
+                    } else {
+                        b.stuckTo = o;
+                    }
+                }
+                else if (b.type !== 'love' && b.type !== 'grandma' && b.type !== 'bouncing' && b.type !== 'pacman') {
                     bullets.splice(bIndex, 1);
                     o.takeDamage(b.damage);
                 }
@@ -760,9 +896,8 @@ function spawnObstacle() {
 }
 
 function spawnCollectible() {
-    const category = Math.random() < 0.7 ? 'weapon' : 'jump';
-    // --- NEW: Added crying_baby to powerups ---
-    const weaponTypes = ['mortar', 'multi', 'spiral', 'goose', 'love', 'random', 'penis', 'boobs', 'grandma', 'crying_baby'];
+    const category = Math.random() < 0.9 ? 'weapon' : 'jump';
+    const weaponTypes = ['mortar', 'multi', 'spiral', 'goose', 'love', 'random', 'penis', 'boobs', 'grandma', 'crying_baby', 'bear_poop', 'pacman', 'pokemon', 'bouncing', 'snowball'];
     const jumpTypes = ['triple_jump', 'hover', 'jetpack', 'slam'];
     const type = (category === 'weapon') ? weaponTypes[Math.floor(Math.random() * weaponTypes.length)] : jumpTypes[Math.floor(Math.random() * jumpTypes.length)];
     const y = Math.random() * (canvas.height - 100) + 50;
@@ -806,10 +941,29 @@ function handleShooting() {
             bullets.push(new Bullet(bX, bY, 'grandma'));
             if (music && music.synths.nag) music.synths.nag.triggerAttackRelease('G#5', '0.3s');
         }
-        // --- NEW: Crying Baby Firing ---
         if (player.powerupType === 'crying_baby' && player.shootCooldown === 0) {
             bullets.push(new Bullet(bX, bY, 'crying_baby'));
-            player.shootCooldown = 45; // Slower fire rate
+            player.shootCooldown = 45;
+        }
+        if (player.powerupType === 'bear_poop' && player.shootCooldown === 0) {
+            bullets.push(new Bullet(bX, bY, 'bear_poop'));
+            player.shootCooldown = 25;
+        }
+        if (player.powerupType === 'pacman' && player.shootCooldown === 0) {
+            bullets.push(new Bullet(bX, bY, 'pacman'));
+            player.shootCooldown = 15;
+        }
+        if (player.powerupType === 'pokemon' && player.shootCooldown === 0) {
+            bullets.push(new Bullet(bX, bY, 'pokemon'));
+            player.shootCooldown = 30;
+        }
+        if (player.powerupType === 'bouncing' && player.shootCooldown === 0) {
+            bullets.push(new Bullet(bX, bY, 'bouncing'));
+            player.shootCooldown = 10;
+        }
+        if (player.powerupType === 'snowball' && player.shootCooldown === 0) {
+            bullets.push(new Bullet(bX, bY, 'snowball'));
+            player.shootCooldown = 12;
         }
     }
 }
