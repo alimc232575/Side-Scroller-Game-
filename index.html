@@ -1,0 +1,627 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Side-Scroller Action Game</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Press Start 2P', cursive;
+            background-color: #1a1b26;
+            color: #f0f0f0;
+            overflow: hidden; /* Prevent scrollbars */
+            margin: 0;
+            padding: 0;
+        }
+        canvas {
+            background-color: #2c2d3c;
+            display: block;
+            border-bottom: 5px solid #4a4b5c;
+        }
+        .game-wrapper {
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            width: 100vw;
+            height: 100vh;
+        }
+        #game-container {
+            position: relative;
+            width: 100%;
+            max-width: 1000px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+        }
+        #ui-container {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none; /* Allow clicks to pass through to canvas if needed */
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            padding: 20px;
+        }
+        .top-ui {
+            display: flex;
+            justify-content: space-between;
+            font-size: 1.5rem;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.7);
+        }
+        #weapon-status {
+            position: absolute;
+            bottom: 20px;
+            left: 20px;
+            font-size: 1.2rem;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.7);
+            color: #f1c40f;
+        }
+        .start-screen, .game-over-screen {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(26, 27, 38, 0.85);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            text-align: center;
+            z-index: 10;
+        }
+        .btn {
+            background-color: #8e44ad;
+            color: white;
+            padding: 15px 30px;
+            border-radius: 10px;
+            cursor: pointer;
+            font-size: 1.2rem;
+            border: none;
+            box-shadow: 0 5px #6c3483;
+            transition: all 0.1s ease-in-out;
+            margin-top: 20px;
+            pointer-events: all;
+        }
+        .btn:active {
+            transform: translateY(3px);
+            box-shadow: 0 2px #6c3483;
+        }
+        .difficulty-selector {
+            display: flex;
+            gap: 15px;
+            margin: 20px 0;
+            pointer-events: all;
+        }
+        .difficulty-btn {
+             background-color: #4a4b5c;
+             padding: 10px 20px;
+             border-radius: 8px;
+             cursor: pointer;
+        }
+        .difficulty-btn.selected {
+            background-color: #e74c3c;
+            box-shadow: 0 0 15px #e74c3c;
+        }
+        .instructions {
+            margin-top: 30px;
+            line-height: 1.8;
+        }
+    </style>
+</head>
+<body>
+
+<div class="game-wrapper">
+    <div id="game-container">
+        <canvas id="gameCanvas"></canvas>
+        
+        <div id="ui-container">
+            <div class="top-ui">
+                <div id="score">Score: 0</div>
+                <div id="lives">Lives: 3</div>
+            </div>
+            <div id="weapon-status"></div>
+        </div>
+
+        <div id="start-screen" class="start-screen">
+            <h1 class="text-4xl md:text-5xl mb-4">Pixel Rusher</h1>
+            <p class="mb-4">Select your starting difficulty:</p>
+            <div class="difficulty-selector">
+                <div class="difficulty-btn" data-difficulty="easy">Easy</div>
+                <div class="difficulty-btn" data-difficulty="medium">Medium</div>
+                <div class="difficulty-btn" data-difficulty="hard">Hard</div>
+            </div>
+            <button id="start-btn" class="btn">Start Game</button>
+            <div class="instructions">
+                <p>Up Arrow / Swipe Up: Jump (Twice for Double Jump)</p>
+                <p>Down Arrow / Swipe Down: Duck</p>
+                <p>Spacebar / Tap Screen: Shoot</p>
+            </div>
+        </div>
+
+        <div id="game-over-screen" class="game-over-screen" style="display: none;">
+            <h1 class="text-4xl md:text-5xl mb-4">Game Over</h1>
+            <p id="final-score" class="text-2xl mb-6"></p>
+            <button id="restart-btn" class="btn">Play Again</button>
+        </div>
+    </div>
+</div>
+
+<script>
+// --- Game Setup ---
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+const gameContainer = document.getElementById('game-container');
+
+// UI Elements
+const scoreEl = document.getElementById('score');
+const livesEl = document.getElementById('lives');
+const weaponStatusEl = document.getElementById('weapon-status');
+const startScreen = document.getElementById('start-screen');
+const gameOverScreen = document.getElementById('game-over-screen');
+const startBtn = document.getElementById('start-btn');
+const restartBtn = document.getElementById('restart-btn');
+const finalScoreEl = document.getElementById('final-score');
+const difficultySelector = document.querySelector('.difficulty-selector');
+
+// Game state
+let score, lives, gameSpeed, obstacleFrequency, difficulty;
+let player, obstacles, bullets, collectibles;
+let keys = {};
+let gameState = 'start'; // 'start', 'playing', 'over'
+let animationFrameId;
+let frameCount = 0;
+
+// --- Sizing and Responsiveness ---
+function resizeCanvas() {
+    canvas.width = gameContainer.clientWidth;
+    canvas.height = gameContainer.clientWidth * 0.6; // Maintain aspect ratio
+    if (gameState !== 'playing') {
+        drawInitialState(); // Redraw if not in active game loop
+    }
+}
+
+// --- Player Class ---
+class Player {
+    constructor() {
+        this.baseY = canvas.height - 60;
+        this.x = 50;
+        this.y = this.baseY;
+        this.width = 40;
+        this.height = 50;
+        this.dy = 0; // vertical velocity
+        this.jumpPower = 18;
+        this.gravity = 0.8;
+        this.isJumping = false;
+        this.isDucking = false;
+        this.duckHeight = 30;
+        this.jumpsRemaining = 2;
+        this.weaponType = 'normal';
+        this.weaponTimer = 0;
+        this.shootCooldown = 0;
+        // --- NEW: Flip Animation ---
+        this.rotation = 0;
+    }
+
+    draw() {
+        ctx.save();
+        // Translate context to the center of the player
+        const currentHeight = this.isDucking ? this.duckHeight : this.height;
+        const currentY = this.isDucking ? this.baseY + (this.height - this.duckHeight) : this.y;
+        ctx.translate(this.x + this.width / 2, currentY + currentHeight / 2);
+        
+        // Rotate the context
+        ctx.rotate(this.rotation);
+        
+        // Draw the player centered at the new origin
+        ctx.fillStyle = '#3498db';
+        ctx.fillRect(-this.width / 2, -currentHeight / 2, this.width, currentHeight);
+        
+        ctx.restore();
+    }
+
+    update() {
+        // Handle jumping and flip animation
+        if (this.isJumping) {
+            this.y -= this.dy;
+            this.dy -= this.gravity;
+            // --- NEW: Animate rotation during jump ---
+            this.rotation += 0.2; 
+            
+            if (this.y >= this.baseY) {
+                this.y = this.baseY;
+                this.isJumping = false;
+                this.dy = 0;
+                this.jumpsRemaining = 2; // Reset jumps on landing
+                this.rotation = 0; // Reset rotation on landing
+            }
+        }
+        
+        if (this.weaponTimer > 0) {
+            this.weaponTimer--;
+            weaponStatusEl.textContent = `${this.weaponType.toUpperCase()}! ${Math.ceil(this.weaponTimer / 60)}s`;
+            if (this.weaponTimer <= 0) {
+                this.weaponType = 'normal';
+                weaponStatusEl.textContent = '';
+            }
+        }
+        
+        if (this.shootCooldown > 0) {
+            this.shootCooldown--;
+        }
+        
+        this.draw();
+    }
+
+    jump() {
+        if (this.jumpsRemaining > 0) {
+            this.isJumping = true;
+            this.dy = this.jumpPower;
+            this.jumpsRemaining--;
+        }
+    }
+    
+    duck(shouldDuck) {
+        if (!this.isJumping) { // Prevent ducking in mid-air
+            this.isDucking = shouldDuck;
+        }
+    }
+
+    equipWeapon(type) {
+        this.weaponType = type;
+        this.weaponTimer = 600; // 10 seconds
+    }
+}
+
+// --- Obstacle Types and Class ---
+const obstacleTypes = {
+    white: { health: 1, color: '#ecf0f1' },
+    yellow: { health: 3, color: '#f1c40f' },
+    red: { health: 10, color: '#e74c3c' }
+};
+
+class Obstacle {
+    constructor(type, x, y, width, height, strength) {
+        this.x = x;
+        this.y = y;
+        this.width = width;
+        this.height = height;
+        this.type = type;
+        this.strength = strength;
+        this.health = obstacleTypes[strength].health;
+        this.color = obstacleTypes[strength].color;
+    }
+
+    draw() {
+        ctx.fillStyle = this.color;
+        ctx.fillRect(this.x, this.y, this.width, this.height);
+    }
+
+    update() {
+        this.x -= gameSpeed;
+        this.draw();
+    }
+    
+    takeDamage(amount) {
+        this.health -= amount;
+    }
+}
+
+// --- Bullet Class ---
+class Bullet {
+    constructor(x, y, type = 'normal') {
+        this.x = x;
+        this.y = y;
+        this.type = type;
+        this.speed = 10;
+        this.damage = 1;
+        this.dy = 0; 
+        
+        // --- NEW: Properties for Vortex weapon ---
+        this.angle = Math.random() * Math.PI * 2; // Start at a random angle
+        this.orbitRadius = 40;
+
+        if (type === 'big') {
+            this.width = 30; this.height = 15; this.damage = 3;
+        } else if (type === 'vortex') {
+            this.width = 10; this.height = 10; this.damage = 1;
+        } else { // normal
+            this.width = 15; this.height = 5;
+        }
+    }
+
+    draw() {
+        ctx.fillStyle = this.type === 'big' ? '#e67e22' : '#9b59b6';
+        ctx.fillRect(this.x, this.y, this.width, this.height);
+    }
+
+    update() {
+        // --- MODIFIED: Update logic for different bullet types ---
+        if (this.type === 'vortex') {
+            this.angle += 0.15; // Rotation speed
+            this.orbitRadius += 0.8; // Expand outwards
+            const playerCenterX = player.x + player.width / 2;
+            const playerCenterY = player.y + player.height / 2;
+            this.x = playerCenterX + Math.cos(this.angle) * this.orbitRadius - this.width / 2;
+            this.y = playerCenterY + Math.sin(this.angle) * this.orbitRadius - this.height / 2;
+        } else {
+            this.x += this.speed;
+        }
+        this.draw();
+    }
+}
+
+// --- Collectible Class ---
+class Collectible {
+    constructor(x, y, weaponType) {
+        this.x = x; this.y = y;
+        this.width = 30; this.height = 30;
+        this.weaponType = weaponType;
+        this.color = '#2ecc71';
+    }
+
+    draw() {
+        ctx.fillStyle = this.color;
+        ctx.fillRect(this.x, this.y, this.width, this.height);
+        ctx.fillStyle = '#ffffff';
+        ctx.font = '20px "Press Start 2P"';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        const letter = this.weaponType.charAt(0).toUpperCase();
+        ctx.fillText(letter, this.x + this.width / 2, this.y + this.height / 2 + 2);
+    }
+
+    update() {
+        this.x -= gameSpeed;
+        this.draw();
+    }
+}
+
+// --- Game Initialization ---
+function init() {
+    score = 0; lives = 3; frameCount = 0;
+    
+    const difficultySettings = {
+        easy:   { speed: 6, freq: 120 },
+        medium: { speed: 8, freq: 100 },
+        hard:   { speed: 10, freq: 80 }
+    };
+    
+    const setting = difficultySettings[difficulty];
+    gameSpeed = setting.speed;
+    obstacleFrequency = setting.freq;
+
+    player = new Player();
+    obstacles = []; bullets = []; collectibles = [];
+    
+    scoreEl.textContent = `Score: ${score}`;
+    livesEl.textContent = `Lives: ${lives}`;
+    weaponStatusEl.textContent = '';
+    
+    startScreen.style.display = 'none';
+    gameOverScreen.style.display = 'none';
+    
+    gameState = 'playing';
+    gameLoop();
+}
+
+// --- Game Loop ---
+function gameLoop() {
+    if (gameState !== 'playing') return;
+
+    animationFrameId = requestAnimationFrame(gameLoop);
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    frameCount++;
+
+    player.update();
+    
+    // --- NEW: Handle rapid fire and automatic weapons ---
+    handleShooting();
+
+    // Handle Collectibles
+    if (frameCount % 900 === 0 && frameCount > 0) { spawnCollectible(); }
+    collectibles.forEach((collectible, index) => {
+        collectible.update();
+        if (checkCollision(player, collectible)) {
+            player.equipWeapon(collectible.weaponType);
+            collectibles.splice(index, 1);
+        }
+        if (collectible.x + collectible.width < 0) { collectibles.splice(index, 1); }
+    });
+
+    // Handle Obstacles
+    if (frameCount % obstacleFrequency === 0) { spawnObstacle(); }
+    obstacles.forEach((obstacle, index) => {
+        obstacle.update();
+        if (checkCollision(player, obstacle)) {
+            obstacles.splice(index, 1);
+            lives--;
+            livesEl.textContent = `Lives: ${lives}`;
+            if (lives <= 0) { endGame(); }
+        }
+        if (obstacle.x + obstacle.width < 0) {
+            obstacles.splice(index, 1);
+            score += 5;
+            scoreEl.textContent = `Score: ${score}`;
+        }
+    });
+
+    // Handle Bullets
+    bullets.forEach((bullet, bIndex) => {
+        bullet.update();
+        if (bullet.x > canvas.width || bullet.x < -bullet.width || bullet.y > canvas.height || bullet.y < -bullet.height) {
+            bullets.splice(bIndex, 1);
+        }
+        obstacles.forEach((obstacle, oIndex) => {
+            if (checkCollision(bullet, obstacle)) {
+                if (!bullets.includes(bullet)) return;
+                
+                // Vortex bullets pass through, others are destroyed
+                if (bullet.type !== 'vortex') {
+                    bullets.splice(bIndex, 1);
+                }
+                
+                obstacle.takeDamage(bullet.damage);
+
+                if (obstacle.health <= 0) {
+                    obstacles.splice(oIndex, 1);
+                    score += 20;
+                    scoreEl.textContent = `Score: ${score}`;
+                }
+            }
+        });
+    });
+    
+    // Increase difficulty
+    if(frameCount % 500 === 0) {
+        gameSpeed += 0.5;
+        if (obstacleFrequency > 40) { obstacleFrequency -= 3; }
+    }
+}
+
+// --- Helper Functions ---
+function spawnObstacle() {
+    const rand = Math.random();
+    const strength = rand < 0.6 ? 'white' : rand < 0.9 ? 'yellow' : 'red';
+    const type = Math.random() < 0.5 ? 'low' : 'flying';
+    const height = Math.random() * 50 + 30;
+    const width = Math.random() * 20 + 20;
+    let y = (type === 'low') ? canvas.height - height - 50 : canvas.height - 150 - Math.random() * 50;
+    obstacles.push(new Obstacle(type, canvas.width, y, width, height, strength));
+}
+
+function spawnCollectible() {
+    // --- MODIFIED: Added 'vortex' weapon type ---
+    const weaponTypes = ['big', 'vortex'];
+    const type = weaponTypes[Math.floor(Math.random() * weaponTypes.length)];
+    const y = canvas.height - 250; // High up, requires double jump
+    collectibles.push(new Collectible(canvas.width, y, type));
+}
+
+function checkCollision(rect1, rect2) {
+    const r1 = (rect1 === player) ? {
+        x: player.x,
+        y: player.isDucking ? player.baseY + (player.height - player.duckHeight) : player.y,
+        width: player.width,
+        height: player.isDucking ? player.duckHeight : player.height
+    } : rect1;
+
+    return (
+        r1.x < rect2.x + rect2.width &&
+        r1.x + r1.width > rect2.x &&
+        r1.y < rect2.y + rect2.height &&
+        r1.y + r1.height > rect2.y
+    );
+}
+
+// --- MODIFIED: Centralized shooting logic ---
+function handleShooting() {
+    const canShoot = player.shootCooldown === 0;
+    
+    // Vortex is automatic and doesn't depend on key press
+    if (player.weaponType === 'vortex' && frameCount % 8 === 0) { // Fire rate for vortex
+        bullets.push(new Bullet(0, 0, 'vortex'));
+    }
+
+    // Handle manual shooting for other weapons
+    if (keys['Space'] && canShoot) {
+        const bulletY = player.isDucking ? player.y + 35 : player.y + 15;
+        const bulletX = player.x + player.width;
+        
+        switch (player.weaponType) {
+            case 'big':
+                bullets.push(new Bullet(bulletX, bulletY - 5, 'big'));
+                player.shootCooldown = 15; // Slower fire rate for big bullets
+                break;
+            case 'normal':
+                bullets.push(new Bullet(bulletX, bulletY, 'normal'));
+                player.shootCooldown = 8; // Faster fire rate
+                break;
+        }
+    }
+}
+
+function endGame() {
+    gameState = 'over';
+    cancelAnimationFrame(animationFrameId);
+    gameOverScreen.style.display = 'flex';
+    finalScoreEl.textContent = `Final Score: ${score}`;
+}
+
+// --- Event Listeners ---
+window.addEventListener('keydown', (e) => {
+    keys[e.code] = true;
+    if (e.code === 'ArrowUp' && gameState === 'playing') player.jump();
+    if (e.code === 'ArrowDown' && gameState === 'playing') player.duck(true);
+});
+window.addEventListener('keyup', (e) => {
+    keys[e.code] = false;
+    if (e.code === 'ArrowDown' && gameState === 'playing') player.duck(false);
+});
+
+// Touch Controls
+let touchStartY = 0, touchStartX = 0, touchStartTime = 0;
+canvas.addEventListener('touchstart', (e) => {
+    e.preventDefault();
+    touchStartY = e.touches[0].clientY;
+    touchStartX = e.touches[0].clientX;
+    touchStartTime = Date.now();
+    keys['Space'] = true; // Treat tap as holding spacebar
+}, { passive: false });
+
+canvas.addEventListener('touchmove', (e) => {
+    e.preventDefault();
+    let touchEndY = e.touches[0].clientY;
+    if (touchStartY - touchEndY > 40) {
+        player.jump();
+        touchStartY = touchEndY;
+    } else if (touchEndY - touchStartY > 40) {
+        player.duck(true);
+    }
+}, { passive: false });
+
+canvas.addEventListener('touchend', (e) => {
+    e.preventDefault();
+    keys['Space'] = false; // Release spacebar on touchend
+    player.duck(false);
+}, { passive: false });
+
+// UI Buttons
+startBtn.addEventListener('click', () => { if (difficulty) init(); });
+restartBtn.addEventListener('click', () => {
+    startScreen.style.display = 'flex';
+    gameOverScreen.style.display = 'none';
+    gameState = 'start';
+    drawInitialState();
+});
+difficultySelector.addEventListener('click', (e) => {
+    if (e.target.classList.contains('difficulty-btn')) {
+        document.querySelectorAll('.difficulty-btn').forEach(btn => btn.classList.remove('selected'));
+        e.target.classList.add('selected');
+        difficulty = e.target.dataset.difficulty;
+    }
+});
+
+// Initial Setup
+window.addEventListener('resize', resizeCanvas);
+function drawInitialState() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    const tempPlayer = new Player();
+    tempPlayer.baseY = canvas.height - 60;
+    tempPlayer.y = tempPlayer.baseY;
+    tempPlayer.draw();
+    ctx.fillStyle = '#4a4b5c';
+    ctx.fillRect(0, canvas.height - 50, canvas.width, 50);
+}
+
+document.querySelector('[data-difficulty="medium"]').classList.add('selected');
+difficulty = 'medium';
+resizeCanvas();
+
+</script>
+</body>
+</html>
