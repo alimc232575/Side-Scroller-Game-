@@ -61,6 +61,34 @@
             text-shadow: 2px 2px 4px rgba(0,0,0,0.7);
             color: #2ecc71;
         }
+        /* NEW: Health Bar Styling */
+        #health-bar-container {
+            width: 200px; /* Fixed width for the bar */
+            height: 25px;
+            background-color: #555;
+            border: 2px solid #fff;
+            border-radius: 5px;
+            overflow: hidden;
+            margin-bottom: 10px; /* Space between health and score */
+            pointer-events: none;
+            position: relative; /* For text overlay */
+        }
+        #health-bar {
+            height: 100%;
+            background-color: #e74c3c; /* Red color for health */
+            width: 100%; /* Will be controlled by JS */
+            transition: width 0.2s ease-out; /* Smooth transition for health changes */
+        }
+        #health-text {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: white;
+            font-size: 1rem;
+            text-shadow: 1px 1px 2px rgba(0,0,0,0.7);
+            white-space: nowrap;
+        }
         .start-screen, .game-over-screen {
             position: absolute;
             top: 0;
@@ -123,6 +151,10 @@
         
         <div id="ui-container">
             <div class="top-ui">
+                <div id="health-bar-container">
+                    <div id="health-bar"></div>
+                    <div id="health-text"></div>
+                </div>
                 <div id="score">Score: 0</div>
                 <div id="lives">Lives: 3</div>
             </div>
@@ -170,6 +202,9 @@ const startBtn = document.getElementById('start-btn');
 const restartBtn = document.getElementById('restart-btn');
 const finalScoreEl = document.getElementById('final-score');
 const difficultySelector = document.querySelector('.difficulty-selector');
+const healthBar = document.getElementById('health-bar');
+const healthText = document.getElementById('health-text');
+
 
 // Game state
 let score, lives, gameSpeed, obstacleFrequency, difficulty;
@@ -178,6 +213,19 @@ let keys = {};
 let gameState = 'start';
 let animationFrameId;
 let frameCount = 0;
+let nextExtraLifeScore = 1000;
+let blocksPassed = 0;
+let nextBossBlockCount = 1000;
+let bossActive = false;
+
+// --- Global variable for Tone.js cooldowns ---
+let lastBabyWahTime = 0;
+const babyWahCooldown = 0.6;
+let lastMogleyFaceTime = 0;
+const mogleyFaceCooldown = 5;
+let lastFootKickSoundTime = 0;
+const footKickSoundCooldown = 0.1;
+
 
 // --- More Robust Music Engine ---
 let music;
@@ -209,13 +257,32 @@ function setupMusic() {
         chomp: new Tone.NoiseSynth({ noise: { type: 'brown' }, envelope: { attack: 0.01, decay: 0.1, sustain: 0 } }).toDestination(),
         zap: new Tone.Synth({ oscillator: { type: "sawtooth" }, envelope: { attack: 0.005, decay: 0.05, sustain: 0, release: 0.1 } }).toDestination(),
         bounce: new Tone.Synth({ oscillator: { type: "triangle" }, envelope: { attack: 0.001, decay: 0.05, sustain: 0, release: 0.05 } }).toDestination(),
-        explosion: new Tone.NoiseSynth({ noise: { type: 'white' }, envelope: { attack: 0.001, decay: 0.8, sustain: 0.01, release: 1.0, attackCurve: 'exponential' } }).toDestination()
+        explosion: new Tone.NoiseSynth({ noise: { type: 'white' }, envelope: { attack: 0.001, decay: 0.8, sustain: 0.01, release: 1.0, attackCurve: 'exponential' } }).toDestination(),
+        captainPunch: new Tone.MembraneSynth({ pitchDecay: 0.1, octaves: 2, oscillator: { type: 'square' } }).toDestination(),
+        footKick: new Tone.MembraneSynth({ pitchDecay: 0.02, octaves: 4, oscillator: { type: 'triangle' } }).toDestination(),
+        wobblePop: new Tone.PluckSynth({ attackNoise: 0.5, dampening: 4000, resonance: 0.9 }).toDestination(),
+        fireExplosion: new Tone.NoiseSynth({ noise: { type: 'pink' }, envelope: { attack: 0.01, decay: 0.2, sustain: 0 } }).toDestination(),
+        waterSplash: new Tone.NoiseSynth({ noise: { type: 'white' }, envelope: { attack: 0.01, decay: 0.1, sustain: 0 } }).toDestination(),
+        windGust: new Tone.NoiseSynth({ noise: { type: 'brown' }, envelope: { attack: 0.01, decay: 0.3, sustain: 0 } }).toDestination(),
+        earthRumble: new Tone.MembraneSynth({ pitchDecay: 0.2, octaves: 1, oscillator: { type: 'sine' } }).toDestination(),
+        mogleyLaugh: new Tone.MetalSynth({ frequency: 200, harmonicity: 5, modulationIndex: 10, envelope: { attack: 0.1, decay: 0.5, release: 0.2 } }).toDestination(),
+        flowerKiss: new Tone.Synth({ oscillator: { type: 'sine' }, envelope: { attack: 0.01, decay: 0.1, sustain: 0, release: 0.05 } }).toDestination(),
+        hypnoZap: new Tone.Synth({ oscillator: { type: 'square' }, envelope: { attack: 0.01, decay: 0.1, sustain: 0, release: 0.2 } }).toDestination(),
+        blackHoleSuck: new Tone.NoiseSynth({ noise: { type: 'pink' }, envelope: { attack: 0.01, decay: 0.5, sustain: 0, release: 0.5 } }).toDestination()
     };
     synths.bass.volume.value = -10; synths.snare.volume.value = -6; synths.nag.volume.value = -8;
     synths.penis.volume.value = -12; synths.boobs.volume.value = -8; synths.love.volume.value = -15;
     synths.babyWah.volume.value = -3;
     synths.pop.volume.value = -10; synths.chomp.volume.value = -8; synths.zap.volume.value = -12;
     synths.bounce.volume.value = -15; synths.explosion.volume.value = -5;
+    synths.captainPunch.volume.value = -8;
+    synths.footKick.volume.value = -10;
+    synths.wobblePop.volume.value = -10;
+    synths.fireExplosion.volume.value = -8; synths.waterSplash.volume.value = -10;
+    synths.windGust.volume.value = -12; synths.earthRumble.volume.value = -8;
+    synths.mogleyLaugh.volume.value = -5;
+    synths.flowerKiss.volume.value = -15; synths.hypnoZap.volume.value = -10;
+    synths.blackHoleSuck.volume.value = -5;
 
     const patterns = {
         intro:  { lead: [],                            bass: ['C2'], kick: true, snare: false },
@@ -282,6 +349,11 @@ class Player {
         this.powerupType = 'normal'; this.powerupTimer = 0;
         this.isSlamming = false;
         this.shootCooldown = 0;
+        this.hitText = '';
+        this.hitTextTimer = 0;
+        this.maxHealth = 100;
+        this.health = this.maxHealth;
+        this.invincibleTimer = 0;
     }
 
     draw() {
@@ -291,6 +363,16 @@ class Player {
         ctx.fillStyle = '#3498db';
         ctx.fillRect(-this.width / 2, -this.height / 2, this.width, this.height);
         ctx.restore();
+
+        if (this.hitTextTimer > 0) {
+            ctx.globalAlpha = this.hitTextTimer / 60;
+            ctx.fillStyle = '#e74c3c';
+            ctx.font = '20px "Press Start 2P"';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'bottom';
+            ctx.fillText(this.hitText, this.x + this.width / 2, this.y - 10);
+            ctx.globalAlpha = 1.0;
+        }
     }
 
     update() {
@@ -321,11 +403,16 @@ class Player {
             powerupStatusEl.textContent = `${this.powerupType.replace('_', ' ').toUpperCase()}! ${Math.ceil(this.powerupTimer / 60)}s`;
             if (this.powerupTimer <= 0) this.resetPowerup();
         } else {
-            // Updated list of weapon types to display in status
-            const weaponTypes = ['normal', 'mortar', 'multi', 'spiral', 'goose', 'love', 'random', 'penis', 'boobs', 'grandma', 'crying_baby', 'bear_poop', 'pacman', 'pokemon', 'bouncing', 'snowball'];
+            const weaponTypes = ['normal', 'mortar', 'multi', 'spiral', 'goose', 'love', 'random', 'penis', 'boobs', 'grandma', 'crying_baby', 'bear_poop', 'pacman', 'pokemon', 'bouncing', 'snowball', 'captain_planet', 'foot_gun', 'flower', 'hypno_toad'];
             if (weaponTypes.includes(this.powerupType)) {
                  powerupStatusEl.textContent = `${this.powerupType.replace('_', ' ').toUpperCase()}`;
             }
+        }
+        if (this.hitTextTimer > 0) {
+            this.hitTextTimer--;
+        }
+        if (this.invincibleTimer > 0) {
+            this.invincibleTimer--;
         }
         this.draw();
     }
@@ -364,8 +451,7 @@ class Player {
             this.powerupTimer = (type === 'slam') ? 1200 : 600;
             if (type === 'triple_jump') this.maxJumps = 3;
         } else if (category === 'weapon') {
-            // Weapon power-ups last for 15 seconds
-            this.powerupTimer = 900; // 15 seconds * 60 frames/sec
+            this.powerupTimer = 900;
         }
         this.jumpsRemaining = this.maxJumps;
     }
@@ -375,25 +461,62 @@ class Player {
         this.jumpsRemaining = Math.min(this.jumpsRemaining, 2);
         powerupStatusEl.textContent = '';
     }
+
+    triggerHitAnimation() {
+        const hitPhrases = ["OFF FUCK!", "OUCHIE MAMA!", "DANG IT!", "ZAP!", "BOOM!"];
+        this.hitText = hitPhrases[Math.floor(Math.random() * hitPhrases.length)];
+        this.hitTextTimer = 60;
+    }
+
+    takeDamage(amount) {
+        if (this.invincibleTimer <= 0) {
+            this.health -= amount;
+            if (this.health < 0) this.health = 0;
+            this.invincibleTimer = 30;
+            updateHealthUI();
+        }
+    }
+
+    heal(amount) {
+        this.health += amount;
+        if (this.health > this.maxHealth) this.health = this.maxHealth;
+        updateHealthUI();
+    }
 }
 
-// --- Entity Classes ---
-const obstacleTypes = { white: { health: 1, color: '#ecf0f1' }, yellow: { health: 3, color: '#f1c40f' }, red: { health: 10, color: '#e74c3c' } };
+// --- Obstacle Types and Class ---
+const obstacleTypes = {
+    white: { health: 1, color: '#ecf0f1', damage: 10 },
+    yellow: { health: 3, color: '#f1c40f', damage: 20 },
+    red: { health: 10, color: '#e74c3c', damage: 30 },
+    boss: { health: 200, color: '#8B0000', damage: 50, width: 100, height: 100 }
+};
+
 class Obstacle {
-    constructor(x, y, w, h, strength) {
+    constructor(x, y, w, h, strength, isBoss = false) {
         this.x = x; this.y = y; this.width = w; this.height = h;
         this.strength = strength; this.health = obstacleTypes[strength].health; this.color = obstacleTypes[strength].color;
         this.naggingGrandmas = 0;
         this.isMelting = false; 
         this.animOffset = Math.random() * 100;
-        this.snowballCount = 0; // For snowball power-up
+        this.snowballCount = 0;
+        this.isHypnotized = false;
+        this.hypnoRotation = 0;
+        this.isBoss = isBoss;
+        this.damage = obstacleTypes[strength].damage;
     }
     draw() {
         ctx.save();
         const wiggleAmount = 5;
         const wiggleSpeed = 0.05;
-        const wiggleOffset = Math.sin((frameCount + this.animOffset) * wiggleSpeed) * wiggleAmount;
-        ctx.translate(0, wiggleOffset);
+        let currentYOffset = Math.sin((frameCount + this.animOffset) * wiggleSpeed) * wiggleAmount;
+        ctx.translate(0, currentYOffset);
+
+        if (this.isHypnotized) {
+            ctx.translate(this.x + this.width / 2, this.y + this.height / 2);
+            ctx.rotate(this.hypnoRotation);
+            ctx.translate(-(this.x + this.width / 2), -(this.y + this.height / 2));
+        }
 
         if (this.naggingGrandmas >= 3 && frameCount % 10 < 5) {
             ctx.fillStyle = '#ffffff';
@@ -405,7 +528,6 @@ class Obstacle {
         }
         ctx.fillRect(this.x, this.y, this.width, this.height);
         
-        // Draw snowball count
         if (this.snowballCount > 0) {
             ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
             ctx.font = '12px "Press Start 2P"';
@@ -425,7 +547,20 @@ class Obstacle {
             this.health -= 0.1;
             this.y += 0.5;
         }
-        this.x -= gameSpeed;
+        if (this.isHypnotized) {
+            this.hypnoRotation += 0.3;
+            this.x += (canvas.width / 2 - this.x) * 0.05;
+            this.y += (canvas.height / 2 - this.y) * 0.05;
+            this.width *= 0.98;
+            this.height *= 0.98;
+            if (this.width < 5 || this.height < 5) {
+                this.health = 0;
+                particles.push(new Particle(this.x + this.width/2, this.y + this.height/2, 'black_hole'));
+                if (music && music.synths.blackHoleSuck) music.synths.blackHoleSuck.triggerAttackRelease('C1', '0.5s', Tone.now());
+            }
+        } else {
+            this.x -= gameSpeed;
+        }
         this.draw();
     }
     takeDamage(amount) { this.health -= amount; }
@@ -450,7 +585,10 @@ class Bullet {
             this.liquidType = Math.random() < 0.5 ? 'white' : 'yellow';
         }
         else if (type === 'boobs') { this.state = 'growing'; this.currentSize = 5; this.maxSize = 40; this.growSpeed = 2; this.width = this.currentSize * 2; this.height = this.currentSize; this.dx = 0; }
-        else if (type === 'grandma') { this.width = 15; this.height = 15; this.state = 'seeking_orbit'; this.seek(); }
+        else if (type === 'grandma') {
+            this.width = 15; this.height = 15; this.state = 'seeking_orbit'; this.seek();
+            this.hasNagged = false;
+        }
         else if (type === 'crying_baby') {
             this.width = 20; this.height = 20; this.state = 'seeking'; this.damage = 5; this.seek();
         }
@@ -461,6 +599,7 @@ class Bullet {
         else if (type === 'pacman') {
             this.width = 25; this.height = 25; this.damage = 1000;
             this.dx = 10; this.mouthAngle = 0; this.mouthSpeed = 0.2;
+            this.state = 'seeking';
         }
         else if (type === 'pokemon') {
             this.width = 20; this.height = 20; this.damage = 5;
@@ -472,12 +611,43 @@ class Bullet {
             this.width = 10; this.height = 10; this.damage = 2;
             this.dx = 8 * (Math.random() < 0.5 ? 1 : -1);
             this.dy = 8 * (Math.random() < 0.5 ? 1 : -1);
+            this.hitCount = 0;
+            this.maxHits = 3;
         }
         else if (type === 'snowball') {
             this.width = 10; this.height = 10; this.damage = 0;
             this.dx = 8;
             this.mergeCount = 1;
             this.maxMergeCount = 20;
+        }
+        else if (type === 'captain_planet') {
+            this.width = 15; this.height = 15; this.damage = 5;
+            const elements = ['earth', 'fire', 'wind', 'water', 'heart'];
+            this.element = elements[Math.floor(Math.random() * elements.length)];
+            this.dx = 10;
+        }
+        else if (type === 'foot_gun') {
+            this.width = 25; this.height = 15; this.damage = 10;
+            this.dx = (Math.random() - 0.5) * 8;
+            this.dy = (Math.random() - 0.5) * 8;
+            this.walkAnimFrame = 0; this.walkAnimSpeed = 0.2;
+            this.life = 300;
+            this.kickCooldown = 0;
+        }
+        else if (type === 'flower') {
+            this.width = 10; this.height = 10; this.damage = 5;
+            this.dx = 8; this.dy = 0; this.gravity = 0.5;
+            this.state = 'seed_flying';
+            this.growthStage = 0; this.maxGrowthStage = 30;
+            this.kissCooldown = 0;
+            this.target = null;
+            this.currentGrowth = 0; // FIX: New property for growth animation
+        }
+        else if (type === 'hypno_toad') {
+            this.width = 30; this.height = 20; this.damage = 1000;
+            this.dx = 5; this.dy = 0;
+            this.state = 'seeking';
+            this.target = null;
         }
     }
     draw() {
@@ -503,7 +673,6 @@ class Bullet {
                 ctx.fillStyle = '#f0d9c4'; ctx.fillRect(0, 0, this.width, this.height);
                 ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(this.width/2, 0, this.width/2, 0, Math.PI * 2); ctx.fill();
                 ctx.fillStyle = '#000'; ctx.fillRect(3, 5, 2, 2); ctx.fillRect(10, 5, 2, 2);
-                if (this.animFrame % 20 < 10) { ctx.fillRect(5, 12, 5, 2); particles.push(new Particle(this.x, this.y, 'nag')); }
                 ctx.restore();
                 break;
             case 'crying_baby':
@@ -554,6 +723,11 @@ class Bullet {
                 ctx.beginPath();
                 ctx.arc(this.x + this.width / 2, this.y + this.height / 2, this.width / 2, 0, Math.PI * 2);
                 ctx.fill();
+                ctx.fillStyle = '#000';
+                ctx.font = '10px "Press Start 2P"';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillText(this.maxHits - this.hitCount, this.x + this.width / 2, this.y + this.height / 2 + 2);
                 break;
             case 'snowball':
                 ctx.fillStyle = `rgba(255, 255, 255, ${0.5 + (this.mergeCount / this.maxMergeCount) * 0.5})`;
@@ -561,6 +735,79 @@ class Bullet {
                 ctx.beginPath();
                 ctx.arc(this.x + this.width / 2, this.y + this.height / 2, currentSize / 2, 0, Math.PI * 2);
                 ctx.fill();
+                break;
+            case 'captain_planet':
+                let cpColor;
+                switch(this.element) {
+                    case 'earth': cpColor = '#228B22'; break;
+                    case 'fire': cpColor = '#FF4500'; break;
+                    case 'wind': cpColor = '#ADD8E6'; break;
+                    case 'water': cpColor = '#4169E1'; break;
+                    case 'heart': cpColor = '#FF69B4'; break;
+                }
+                ctx.fillStyle = cpColor;
+                ctx.beginPath();
+                ctx.arc(this.x + this.width / 2, this.y + this.height / 2, this.width / 2, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.fillStyle = '#fff';
+                ctx.beginPath();
+                ctx.arc(this.x + this.width / 2, this.y + this.height / 2, this.width / 4, 0, Math.PI * 2);
+                ctx.fill();
+                break;
+            case 'foot_gun':
+                ctx.fillStyle = '#A0522D';
+                const footOffset = Math.sin(this.walkAnimFrame * this.walkAnimSpeed) * 3;
+                // Left foot
+                ctx.fillRect(this.x, this.y + footOffset, this.width / 2 - 2, this.height);
+                ctx.beginPath(); // Toes
+                ctx.arc(this.x + this.width / 4, this.y + this.height + footOffset, this.width / 4, 0, Math.PI, true);
+                ctx.fill();
+                // Right foot
+                ctx.fillRect(this.x + this.width / 2 + 2, this.y - footOffset, this.width / 2 - 2, this.height);
+                ctx.beginPath(); // Toes
+                ctx.arc(this.x + this.width * 3 / 4 + 2, this.y + this.height - footOffset, this.width / 4, 0, Math.PI, true);
+                ctx.fill();
+                break;
+            case 'flower':
+                if (this.state === 'seed_flying') {
+                    ctx.fillStyle = '#8B4513';
+                    ctx.fillRect(this.x, this.y, this.width, this.height);
+                } else {
+                    const scale = this.currentGrowth / this.maxGrowthStage; // FIX: Use currentGrowth for scaling
+                    const flowerWidth = this.width * scale * 2;
+                    const flowerHeight = this.height * scale * 2;
+                    const drawX = this.x;
+                    const drawY = this.y;
+
+                    ctx.fillStyle = '#228B22';
+                    ctx.fillRect(drawX + flowerWidth / 4 - 2.5, drawY, 5, flowerHeight);
+
+                    ctx.fillStyle = '#FFD700';
+                    ctx.beginPath();
+                    ctx.arc(drawX + flowerWidth / 4, drawY + flowerHeight * 0.3, flowerWidth / 4, 0, Math.PI * 2); ctx.fill();
+                    ctx.arc(drawX - flowerWidth / 4, drawY + flowerHeight * 0.3, flowerWidth / 4, 0, Math.PI * 2); ctx.fill();
+                    ctx.arc(drawX, drawY + flowerHeight * 0.3 - flowerWidth / 4, flowerWidth / 4, 0, Math.PI * 2); ctx.fill();
+                    ctx.arc(drawX, drawY + flowerHeight * 0.3 + flowerWidth / 4, flowerWidth / 4, 0, Math.PI * 2); ctx.fill();
+                    
+                    ctx.fillStyle = '#FF8C00';
+                    ctx.beginPath();
+                    ctx.arc(drawX, drawY + flowerHeight * 0.3, flowerWidth / 6, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+                break;
+            case 'hypno_toad':
+                ctx.fillStyle = '#2E8B57';
+                ctx.beginPath();
+                ctx.arc(this.x + this.width / 2, this.y + this.height / 2, this.width / 2, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.fillStyle = '#000';
+                ctx.beginPath();
+                ctx.arc(this.x + this.width * 0.3, this.y + this.height * 0.3, 3, 0, Math.PI * 2); ctx.fill();
+                ctx.arc(this.x + this.width * 0.7, this.y + this.height * 0.3, 3, 0, Math.PI * 2); ctx.fill();
+                ctx.fillStyle = '#fff';
+                ctx.beginPath();
+                ctx.arc(this.x + this.width * 0.3 + Math.sin(this.animFrame * 0.1) * 2, this.y + this.height * 0.3, 1.5, 0, Math.PI * 2); ctx.fill();
+                ctx.arc(this.x + this.width * 0.7 + Math.sin(this.animFrame * 0.1) * 2, this.y + this.height * 0.3, 1.5, 0, Math.PI * 2); ctx.fill();
                 break;
             default:
                 ctx.fillStyle = '#9b59b6'; ctx.fillRect(this.x, this.y, this.width, this.height);
@@ -577,11 +824,9 @@ class Bullet {
                     for(let i=0; i<10; i++) particles.push(new Particle(this.x, this.y, 'love'));
                     this.stuckTo.takeDamage(5);
                 } else if (this.type === 'snowball') {
-                    // Orgasm explosion!
-                    if (music && music.synths.explosion) music.synths.explosion.triggerAttackRelease('C4', '1s');
-                    // MODIFIED: Increased number of orgasm particles and varied their properties
-                    for(let i=0; i<80; i++) { // Increased from 50 to 80 particles
-                        particles.push(new Particle(this.x, this.y, 'orgasm', Math.random() * 20 + 10)); // Pass a random initial size
+                    if (music && music.synths.explosion) music.synths.explosion.triggerAttackRelease('C4', '1s', Tone.now());
+                    for(let i=0; i<80; i++) {
+                        particles.push(new Particle(this.x, this.y, 'orgasm', Math.random() * 20 + 10));
                     }
                     this.stuckTo.takeDamage(this.mergeCount * 10);
                 }
@@ -602,25 +847,102 @@ class Bullet {
                     this.seek(); this.x += this.dx; this.y += this.dy;
                     if (this.type === 'grandma' && this.target) {
                         const dist = Math.hypot(this.x - this.target.x, this.y - this.y);
-                        if (dist < 50) { this.state = 'orbiting'; this.target.naggingGrandmas++; }
+                        if (dist < 50) {
+                            this.state = 'orbiting';
+                            this.target.naggingGrandmas++;
+                            if (music && music.synths.nag && !this.hasNagged) {
+                                music.synths.nag.triggerAttackRelease('G#5', '0.3s', Tone.now());
+                                this.hasNagged = true;
+                            }
+                        }
                     }
                     break;
                 case 'orbiting':
                     this.x += (this.target.x - 40 - this.x) * 0.1; this.y += (this.target.y - this.y) * 0.1;
-                    if (!this.target || this.target.health <= 0) { this.remove = true; }
+                    if (!this.target || this.target.health <= 0) {
+                        this.remove = true;
+                        if (this.type === 'grandma' && this.target) {
+                            this.target.naggingGrandmas = Math.max(0, this.target.naggingGrandmas - 1);
+                        }
+                        this.hasNagged = false;
+                    }
+                    break;
+                case 'seed_flying':
+                    this.x += this.dx;
+                    this.y += this.dy;
+                    this.dy += this.gravity;
+                    if (this.y + this.height >= canvas.height - 50) {
+                        this.y = canvas.height - 50 - this.height;
+                        this.dx = 0; this.dy = 0; this.gravity = 0;
+                        this.state = 'growing';
+                        this.life = this.maxGrowthStage; // Life becomes growth timer (incorrect, should be overall lifespan)
+                    }
+                    break;
+                case 'growing':
+                    this.currentGrowth++; // FIX: Increment currentGrowth
+                    if (this.currentGrowth >= this.maxGrowthStage) { // FIX: Check currentGrowth against maxGrowthStage
+                        this.state = 'kissing';
+                        this.life = 600; // Overall lifespan for kissing stage
+                    }
+                    break;
+                case 'kissing':
+                    this.life--;
+                    if (this.life <= 0) { this.remove = true; }
+                    if (this.kissCooldown > 0) { this.kissCooldown--; }
+                    else {
+                        let closestObstacle = null;
+                        let minDistance = Infinity;
+                        obstacles.forEach(o => {
+                            const dist = Math.hypot(this.x - o.x, this.y - o.y);
+                            if (dist < minDistance && !o.isHypnotized) {
+                                minDistance = dist;
+                                closestObstacle = o;
+                            }
+                        });
+                        if (closestObstacle && minDistance < 100) {
+                            closestObstacle.takeDamage(this.damage);
+                            particles.push(new Particle(closestObstacle.x + closestObstacle.width/2, closestObstacle.y + closestObstacle.height/2, 'kiss'));
+                            if (music && music.synths.flowerKiss) music.synths.flowerKiss.triggerAttackRelease('C5', '16n', Tone.now());
+                            this.kissCooldown = 30;
+                        }
+                    }
+                    this.x -= gameSpeed;
+                    break;
+                case 'hypnotizing':
+                    this.life--;
+                    if (this.life <= 0 || !this.target || this.target.health <= 0) {
+                        this.remove = true;
+                        if (this.target && this.target.isHypnotized) {
+                            this.target.health = 0;
+                        }
+                    }
+                    this.x = this.target.x + this.target.width / 2 - this.width / 2;
+                    this.y = this.target.y + this.target.height / 2 - this.height / 2;
                     break;
                 case 'flying':
                 default:
                     if (this.type === 'mortar') this.dy += this.gravity;
                     
                     if (this.type === 'bouncing') {
+                        // Bouncing logic already handles wall collisions
+                    }
+                    if (this.type === 'foot_gun') {
+                        this.walkAnimFrame++;
+                        this.life--;
+                        if (this.life <= 0) this.remove = true;
+
+                        if (frameCount % 30 === 0) {
+                            this.dx = (Math.random() - 0.5) * 8;
+                            this.dy = (Math.random() - 0.5) * 8;
+                        }
                         if (this.x + this.width > canvas.width || this.x < 0) {
                             this.dx *= -1;
-                            if (music && music.synths.bounce) music.synths.bounce.triggerAttackRelease('C5', '32n');
                         }
                         if (this.y + this.height > canvas.height || this.y < 0) {
                             this.dy *= -1;
-                            if (music && music.synths.bounce) music.synths.bounce.triggerAttackRelease('G4', '32n');
+                        }
+                        if (this.kickCooldown > 0) {
+                            this.kickCooldown--;
                         }
                     }
 
@@ -630,11 +952,13 @@ class Bullet {
         this.draw();
     }
     seek() {
-        if (!this.target || !obstacles.includes(this.target) || this.target.health <= 0) {
+        if (!this.target || !obstacles.includes(this.target) || this.target.health <= 0 || this.target.isHypnotized) {
             let closest = null; let closestDist = Infinity;
             obstacles.forEach(o => {
                 const dist = Math.hypot(this.x - o.x, this.y - o.y);
-                if (dist < closestDist) { closest = o; closestDist = dist; }
+                if (dist < closestDist && !o.isHypnotized) {
+                    closest = o; closestDist = dist;
+                }
             });
             this.target = closest;
         }
@@ -643,11 +967,14 @@ class Bullet {
             if (this.type === 'penis') speed = 15;
             if (this.type === 'crying_baby') speed = 3;
             if (this.type === 'pokemon') speed = 10;
+            if (this.type === 'captain_planet') speed = 10;
+            if (this.type === 'pacman') speed = 12;
+            if (this.type === 'hypno_toad') speed = 6;
 
             const targetAngle = Math.atan2(this.target.y - this.y, this.target.x - this.x);
             this.dx = Math.cos(targetAngle) * speed; this.dy = Math.sin(targetAngle) * speed;
             this.angle = targetAngle;
-        } else if (this.type === 'penis' || this.type === 'grandma' || this.type === 'crying_baby' || this.type === 'pokemon') {
+        } else if (this.type === 'penis' || this.type === 'grandma' || this.type === 'crying_baby' || this.type === 'pokemon' || this.type === 'captain_planet' || this.type === 'pacman' || this.type === 'hypno_toad') {
             this.remove = true;
         }
     }
@@ -670,7 +997,6 @@ class Collectible {
 }
 
 class Particle {
-    // MODIFIED: Added optional initialSize for 'orgasm' particles
     constructor(x, y, type, initialSize = 10) {
         this.x = x; this.y = y; this.type = type; this.life = 60;
         this.dx = (Math.random() - 0.5) * 6;
@@ -678,22 +1004,81 @@ class Particle {
         this.gravity = 0.1;
         this.isStuck = false;
         this.color = '#fff';
-        // For elemental particles
         if (type === 'fire') { this.color = '#FF4500'; this.dx = (Math.random() - 0.5) * 8; this.dy = -Math.random() * 8; this.life = 30; }
         else if (type === 'water') { this.color = '#1E90FF'; this.dx = (Math.random() - 0.5) * 6; this.dy = Math.random() * 6; this.life = 40; }
         else if (type === 'electric') { this.color = '#FFD700'; this.dx = (Math.random() - 0.5) * 10; this.dy = (Math.random() - 0.5) * 10; this.life = 20; }
-        // NEW: Properties for 'orgasm' particle
         else if (type === 'orgasm') {
-            this.initialLife = 60; // Store initial life for fade calculation
-            this.dx = (Math.random() - 0.5) * 10; // Wider spread
-            this.dy = (Math.random() - 0.5) * 10; // Wider spread
-            this.size = initialSize; // Initial size passed in
-            this.growthRate = Math.random() * 0.5 + 0.1; // Grow slightly
-            this.color = `rgb(${Math.floor(Math.random() * 255)}, ${Math.floor(Math.random() * 255)}, ${Math.floor(Math.random() * 255)})`; // Random color
+            this.initialLife = 60;
+            this.dx = (Math.random() - 0.5) * 10;
+            this.dy = (Math.random() - 0.5) * 10;
+            this.size = initialSize;
+            this.growthRate = Math.random() * 0.5 + 0.1;
+            this.color = `rgb(${Math.floor(Math.random() * 255)}, ${Math.floor(Math.random() * 255)}, ${Math.floor(Math.random() * 255)})`;
+        }
+        else if (type === 'captain_planet_punch') {
+            this.life = 30;
+            this.size = 50;
+            this.growthRate = 2;
+            this.color = '#00FFFF';
+            this.dx = 0; this.dy = 0;
+        }
+        else if (type === 'wobble') {
+            this.initialLife = 40;
+            this.dx = (Math.random() - 0.5) * 3;
+            this.dy = (Math.random() - 0.5) * 3;
+            this.size = 15;
+            this.color = '#00FFFF';
+            this.wobbleOffset = Math.random() * Math.PI * 2;
+        }
+        else if (type === 'fire_explosion') {
+            this.initialLife = 20; this.life = 20;
+            this.color = '#FF4500'; this.size = 5;
+            this.dx = (Math.random() - 0.5) * 10; this.dy = (Math.random() - 0.5) * 10;
+            this.gravity = 0;
+        }
+        else if (type === 'water_splash') {
+            this.initialLife = 30; this.life = 30;
+            this.color = '#1E90FF'; this.size = 4;
+            this.dx = (Math.random() - 0.5) * 8; this.dy = (Math.random() - 0.5) * 8;
+            this.gravity = 0.2;
+        }
+        else if (type === 'wind_gust') {
+            this.initialLife = 25; this.life = 25;
+            this.color = '#ADD8E6'; this.size = 3;
+            this.dx = (Math.random() - 0.5) * 12; this.dy = (Math.random() - 0.5) * 12;
+            this.gravity = 0;
+        }
+        else if (type === 'earth_shake') {
+            this.initialLife = 40; this.life = 40;
+            this.color = '#8B4513'; this.size = 6;
+            this.dx = (Math.random() - 0.5) * 5; this.dy = Math.random() * 5;
+            this.gravity = 0.5;
+        }
+        else if (this.type === 'mogley_face') {
+            this.initialLife = 120;
+            this.life = 120;
+            this.size = 0;
+            this.maxSize = Math.min(canvas.width, canvas.height) * 0.8;
+            this.growthRate = this.maxSize / this.initialLife;
+            this.dx = 0; this.dy = 0; this.gravity = 0;
+            this.color = '#A0522D';
+        }
+        else if (this.type === 'kiss') {
+            this.initialLife = 30; this.life = 30;
+            this.dx = (Math.random() - 0.5) * 4; this.dy = -Math.random() * 4;
+            this.gravity = 0.1;
+            this.color = '#FF69B4';
+        }
+        else if (this.type === 'black_hole') {
+            this.initialLife = 45; this.life = 45;
+            this.size = 5; this.maxSize = 50;
+            this.growthRate = 1;
+            this.color = '#000';
+            this.dx = 0; this.dy = 0; this.gravity = 0;
         }
     }
     draw() {
-        ctx.globalAlpha = this.life / this.initialLife; // Use initialLife for consistent fading
+        ctx.globalAlpha = this.life / this.initialLife;
         if (this.type === 'love') {
             ctx.fillStyle = '#ff69b4'; ctx.font = "15px 'Press Start 2P'"; ctx.fillText("❤", this.x, this.y);
         } else if (this.type === 'tear') {
@@ -718,12 +1103,67 @@ class Particle {
             ctx.arc(this.x, this.y, 5, 0, Math.PI * 2);
             ctx.fill();
         } else if (this.type === 'orgasm') {
-            // MODIFIED: Dynamic size and random color
             ctx.fillStyle = this.color;
-            ctx.font = `${this.size}px "Press Start 2P"`; // Use dynamic size
+            ctx.font = `${this.size}px "Press Start 2P"`;
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
             ctx.fillText("BOOM!", this.x, this.y);
+        }
+        else if (this.type === 'captain_planet_punch') {
+            ctx.fillStyle = this.color;
+            ctx.font = `${this.size}px "Press Start 2P"`;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText("PUNCH!", this.x, this.y);
+        }
+        else if (this.type === 'wobble') {
+            ctx.fillStyle = this.color;
+            const wobbleFactor = Math.sin((this.initialLife - this.life) * 0.5 + this.wobbleOffset) * 5;
+            ctx.beginPath();
+            ctx.ellipse(this.x, this.y, this.size + wobbleFactor, this.size - wobbleFactor, Math.PI / 4, 0, Math.PI * 2);
+            ctx.fill();
+        }
+        else if (type === 'fire_explosion' || type === 'water_splash' || type === 'wind_gust' || type === 'earth_shake') {
+            ctx.fillStyle = this.color;
+            ctx.beginPath();
+            ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+            ctx.fill();
+        }
+        else if (this.type === 'mogley_face') {
+            ctx.fillStyle = this.color;
+            ctx.beginPath();
+            ctx.arc(this.x, this.y, this.size / 2, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.fillStyle = '#000';
+            ctx.beginPath();
+            ctx.arc(this.x - this.size * 0.15, this.y - this.size * 0.1, this.size * 0.05, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.beginPath();
+            ctx.arc(this.x + this.size * 0.15, this.y + this.size * 0.1, this.size * 0.05, 0, Math.PI * 2); // Adjusted Y for right eye
+            ctx.fill();
+            ctx.strokeStyle = '#000';
+            ctx.lineWidth = this.size * 0.02;
+            ctx.beginPath();
+            ctx.arc(this.x, this.y + this.size * 0.1, this.size * 0.15, 0, Math.PI);
+            ctx.stroke();
+        }
+        else if (this.type === 'kiss') {
+            ctx.fillStyle = this.color;
+            ctx.font = '15px "Press Start 2P"';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText("MWAH!", this.x, this.y);
+        }
+        else if (this.type === 'black_hole') {
+            ctx.fillStyle = this.color;
+            ctx.beginPath();
+            ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.strokeStyle = '#fff';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.arc(this.x, this.y, this.size * 0.5, 0, Math.PI * 2);
+            ctx.stroke();
         }
         ctx.globalAlpha = 1.0;
     }
@@ -739,11 +1179,30 @@ class Particle {
                     this.dx = 0;
                 }
             }
-        } else if (this.type === 'milk' || this.type === 'tear' || this.type === 'poop' || this.type === 'elemental') {
+        } else if (this.type === 'milk' || this.type === 'tear' || this.type === 'poop' || this.type === 'elemental' || this.type === 'kiss') {
             this.dy += this.gravity;
         } else if (this.type === 'orgasm') {
-            this.size += this.growthRate; // Grow the text size
-            this.dy += this.gravity * 0.5; // Slightly affected by gravity
+            this.size += this.growthRate;
+            this.dy += this.gravity * 0.5;
+        }
+        else if (this.type === 'captain_planet_punch') {
+            this.size += this.growthRate;
+        }
+        else if (this.type === 'wobble') {
+            this.dy += this.gravity * 0.2;
+        }
+        else if (type === 'fire_explosion' || type === 'water_splash' || type === 'wind_gust' || type === 'earth_shake') {
+            this.size += 1;
+        }
+        else if (this.type === 'mogley_face') {
+            this.size += this.growthRate;
+            if (this.size > this.maxSize) this.size = this.maxSize;
+            this.x = canvas.width / 2;
+            this.y = canvas.height / 2;
+        }
+        else if (this.type === 'black_hole') {
+            this.size += this.growthRate;
+            if (this.size > this.maxSize) this.size = this.maxSize;
         }
         this.x += this.dx; this.y += this.dy;
         this.draw();
@@ -758,6 +1217,11 @@ function init() {
     Tone.Transport.start('+0.1');
 
     score = 0; lives = 3; frameCount = 0;
+    nextExtraLifeScore = 1000;
+    blocksPassed = 0;
+    nextBossBlockCount = 1000;
+    bossActive = false;
+
     const difficultySettings = { 
         easy:   { speed: 1.2, freq: 68 },
         medium: { speed: 1.6, freq: 57 },
@@ -771,15 +1235,23 @@ function init() {
     
     scoreEl.textContent = `Score: ${score}`; livesEl.textContent = `Lives: ${lives}`;
     powerupStatusEl.textContent = '';
+    player.health = player.maxHealth;
+    updateHealthUI();
     
     startScreen.style.display = 'none'; gameOverScreen.style.display = 'none';
     gameState = 'playing';
-    gameLoop();
+    animationFrameId = requestAnimationFrame(gameLoop);
 }
 
 // --- Game Loop ---
 function gameLoop() {
-    if (gameState !== 'playing') return;
+    if (gameState !== 'playing' || !player) {
+        if (gameState === 'over' && !player) {
+            cancelAnimationFrame(animationFrameId);
+        }
+        return;
+    }
+
     animationFrameId = requestAnimationFrame(gameLoop);
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     frameCount++;
@@ -797,32 +1269,75 @@ function gameLoop() {
         if (c.x + c.width < 0) collectibles.splice(i, 1);
     });
 
-    if (frameCount % obstacleFrequency === 0) spawnObstacle();
+    if (blocksPassed >= nextBossBlockCount && !bossActive) {
+        spawnObstacle(true);
+    } else if (frameCount % obstacleFrequency === 0 && !bossActive) {
+        spawnObstacle();
+    }
+
     obstacles.forEach((o, i) => {
         o.prevX = o.x; o.prevY = o.y;
         o.update();
+        let removed = false;
+
         if (o.health <= 0) {
             obstacles.splice(i, 1);
             score += 20; scoreEl.textContent = `Score: ${score}`;
+            if (score >= nextExtraLifeScore) {
+                lives++;
+                livesEl.textContent = `Lives: ${lives}`;
+                nextExtraLifeScore += 1000;
+            }
+            if (o.isBoss) {
+                bossActive = false;
+                score += 500;
+                scoreEl.textContent = `Score: ${score}`;
+            }
+            blocksPassed++;
+            removed = true;
         } else if (checkCollision(player, o)) {
-            obstacles.splice(i, 1); lives--; livesEl.textContent = `Lives: ${lives}`;
+            player.takeDamage(o.damage);
+            if (!o.isBoss) {
+                obstacles.splice(i, 1);
+                blocksPassed++;
+                removed = true;
+            }
+            livesEl.textContent = `Lives: ${lives}`;
+            player.triggerHitAnimation();
             if (lives <= 0) endGame();
         }
-        if (o.x + o.width < 0) { obstacles.splice(i, 1); score += 5; scoreEl.textContent = `Score: ${score}`; }
+
+        if (!removed && o.x + o.width < 0) {
+            obstacles.splice(i, 1);
+            score += 5; scoreEl.textContent = `Score: ${score}`;
+            blocksPassed++;
+            if (o.isBoss) {
+                bossActive = false;
+            }
+        }
     });
 
     bullets.forEach((b, bIndex) => {
         b.update();
-        if (b.remove || b.x > canvas.width + 50 || b.x < -50 || b.y > canvas.height + 50 || b.y < -50) {
+        // FIX: Only remove bouncing bullets when their hit count is exhausted or they go VERY far off-screen
+        const isBouncingAndAlive = b.type === 'bouncing' && !b.remove;
+        const outOfBounds = b.x > canvas.width + 100 || b.x < -100 || b.y > canvas.height + 100 || b.y < -100; // Increased bounds
+        
+        if (b.remove || (!isBouncingAndAlive && outOfBounds)) { // If it's explicitly removed OR it's not a bouncing bullet and is far out of bounds
             if (b.type === 'grandma' && b.target) b.target.naggingGrandmas--;
             bullets.splice(bIndex, 1);
         }
+        
         obstacles.forEach((o, oIndex) => {
             if (checkCollision(b, o)) {
                 if (!bullets.includes(b)) return;
 
                 if (b.type === 'crying_baby') {
-                    if (music && music.synths.babyWah) music.synths.babyWah.triggerAttackRelease('A5', '0.5s');
+                    const now = Tone.context.currentTime;
+                    if (now - lastBabyWahTime > babyWahCooldown) {
+                        if (music && music.synths.babyWah) music.synths.babyWah.triggerAttackRelease('A5', '0.5s', now);
+                        lastBabyWahTime = now;
+                    }
                     for (let i = 0; i < 20; i++) particles.push(new Particle(b.x, b.y, 'shockwave'));
                     obstacles.forEach(otherObstacle => {
                         const dist = Math.hypot(b.x - otherObstacle.x, b.y - otherObstacle.y);
@@ -840,17 +1355,17 @@ function gameLoop() {
                     bullets.splice(bIndex, 1);
                 }
                 else if (b.type === 'bear_poop') {
-                    if (music && music.synths.pop) music.synths.pop.triggerAttackRelease('C4', '16n');
+                    if (music && music.synths.pop) music.synths.pop.triggerAttackRelease('C4', '16n', Tone.now());
                     particles.push(new Particle(b.x, b.y, 'poop'));
                     o.takeDamage(b.damage);
                     bullets.splice(bIndex, 1);
                 }
                 else if (b.type === 'pacman') {
-                    if (music && music.synths.chomp) music.synths.chomp.triggerAttackRelease('16n');
+                    if (music && music.synths.chomp) music.synths.chomp.triggerAttackRelease('16n', Tone.now());
                     o.takeDamage(b.damage);
                 }
                 else if (b.type === 'pokemon') {
-                    if (music && music.synths.zap) music.synths.zap.triggerAttackRelease('E5', '16n');
+                    if (music && music.synths.zap) music.synths.zap.triggerAttackRelease('E5', '16n', Tone.now());
                     for (let i = 0; i < 15; i++) particles.push(new Particle(b.x, b.y, 'elemental', b.element));
                     o.takeDamage(b.damage);
                     bullets.splice(bIndex, 1);
@@ -867,7 +1382,83 @@ function gameLoop() {
                         b.stuckTo = o;
                     }
                 }
-                else if (b.type !== 'love' && b.type !== 'grandma' && b.type !== 'bouncing' && b.type !== 'pacman') {
+                else if (b.type === 'captain_planet') {
+                    if (music && music.synths.zap) music.synths.zap.triggerAttackRelease('C6', '32n', Tone.now());
+                    o.takeDamage(b.damage);
+                    bullets.splice(bIndex, 1);
+                    switch(b.element) {
+                        case 'fire':
+                            if (music && music.synths.fireExplosion) music.synths.fireExplosion.triggerAttackRelease('C3', '0.2s', Tone.now());
+                            for(let i=0; i<20; i++) particles.push(new Particle(o.x + o.width/2, o.y + o.height/2, 'fire_explosion'));
+                            break;
+                        case 'water':
+                            if (music && music.synths.waterSplash) music.synths.waterSplash.triggerAttackRelease('C4', '0.2s', Tone.now());
+                            for(let i=0; i<20; i++) particles.push(new Particle(o.x + o.width/2, o.y + o.height/2, 'water_splash'));
+                            break;
+                        case 'wind':
+                            if (music && music.synths.windGust) music.synths.windGust.triggerAttackRelease('C5', '0.2s', Tone.now());
+                            for(let i=0; i<20; i++) particles.push(new Particle(o.x + o.width/2, o.y + o.height/2, 'wind_gust'));
+                            break;
+                        case 'earth':
+                            if (music && music.synths.earthRumble) music.synths.earthRumble.triggerAttackRelease('C2', '0.2s', Tone.now());
+                            for(let i=0; i<20; i++) particles.push(new Particle(o.x + o.width/2, o.y + o.height/2, 'earth_shake'));
+                            break;
+                        case 'heart':
+                            const now = Tone.context.currentTime;
+                            if (now - lastMogleyFaceTime > mogleyFaceCooldown) {
+                                if (music && music.synths.mogleyLaugh) music.synths.mogleyLaugh.triggerAttackRelease('C4', '1s', now);
+                                particles.push(new Particle(canvas.width / 2, canvas.height / 2, 'mogley_face'));
+                                lastMogleyFaceTime = now;
+                            }
+                            break;
+                    }
+                    if (Math.random() < 0.2) {
+                        particles.push(new Particle(canvas.width / 2, canvas.height / 2, 'captain_planet_punch'));
+                        if (music && music.synths.captainPunch) music.synths.captainPunch.triggerAttackRelease('C3', '0.2s', Tone.now());
+                        obstacles.forEach(obs => {
+                            obs.takeDamage(50);
+                        });
+                    }
+                }
+                else if (b.type === 'foot_gun') {
+                    const now = Tone.context.currentTime;
+                    if (b.kickCooldown <= 0) {
+                        if (music && music.synths.footKick && (now - lastFootKickSoundTime > footKickSoundCooldown)) {
+                            music.synths.footKick.triggerAttackRelease('C2', '16n', now);
+                            lastFootKickSoundTime = now; // FIX: Update lastFootKickSoundTime
+                        }
+                        o.takeDamage(b.damage);
+                        b.kickCooldown = 15;
+                    }
+                }
+                else if (b.type === 'bouncing') {
+                    o.takeDamage(b.damage);
+                    b.hitCount++;
+                    if (b.hitCount >= b.maxHits) {
+                        for(let i=0; i<10; i++) particles.push(new Particle(b.x, b.y, 'wobble'));
+                        if (music && music.synths.wobblePop) music.synths.wobblePop.triggerAttackRelease('G4', '16n', Tone.now());
+                        b.remove = true;
+                    }
+                }
+                else if (b.type === 'flower') {
+                    if (b.state === 'seed_flying' && b.y + b.height >= o.y && b.y < o.y + o.height) {
+                        b.target = o;
+                        b.state = 'growing';
+                        b.dx = 0; b.dy = 0; b.gravity = 0;
+                        b.life = b.maxGrowthStage; // This is the life for the flower, not its growth.
+                        // The life of the bullet itself (for removal purposes)
+                    }
+                }
+                else if (b.type === 'hypno_toad') {
+                    if (b.state === 'seeking') {
+                        o.isHypnotized = true;
+                        b.target = o;
+                        b.state = 'hypnotizing';
+                        if (music && music.synths.hypnoZap) music.synths.hypnoZap.triggerAttackRelease('A4', '0.3s', Tone.now());
+                        b.life = 60;
+                    }
+                }
+                else if (b.type !== 'love' && b.type !== 'grandma' && b.type !== 'pacman' && b.type !== 'foot_gun' && b.type !== 'flower' && b.type !== 'hypno_toad' && b.type !== 'bouncing') {
                     bullets.splice(bIndex, 1);
                     o.takeDamage(b.damage);
                 }
@@ -886,18 +1477,37 @@ function gameLoop() {
 }
 
 // --- Helper Functions ---
-function spawnObstacle() {
-    const rand = Math.random();
-    const strength = rand < 0.6 ? 'white' : rand < 0.9 ? 'yellow' : 'red';
-    const h = Math.random() * 50 + 30, w = Math.random() * 20 + 20;
+function spawnObstacle(isBossSpawn = false) {
+    let currentObstacleStrength;
+    let currentObstacleWidth, currentObstacleHeight;
+    let isCurrentBoss = false;
+
+    if (isBossSpawn) {
+        currentObstacleStrength = 'boss';
+        currentObstacleWidth = obstacleTypes.boss.width;
+        currentObstacleHeight = obstacleTypes.boss.height;
+        isCurrentBoss = true;
+        bossActive = true;
+        nextBossBlockCount += 5000;
+    } else {
+        const rand = Math.random();
+        currentObstacleStrength = rand < 0.6 ? 'white' : rand < 0.9 ? 'yellow' : 'red';
+        currentObstacleWidth = Math.random() * 20 + 20;
+        currentObstacleHeight = Math.random() * 50 + 30;
+    }
+
     let x = canvas.width;
-    let y = Math.random() * (canvas.height - h);
-    obstacles.push(new Obstacle(x, y, w, h, strength));
+    let y = Math.random() * (canvas.height - currentObstacleHeight);
+    if (!isCurrentBoss && Math.random() < 0.5) {
+        y = canvas.height - currentObstacleHeight - 50;
+    }
+
+    obstacles.push(new Obstacle(x, y, currentObstacleWidth, currentObstacleHeight, currentObstacleStrength, isCurrentBoss));
 }
 
 function spawnCollectible() {
     const category = Math.random() < 0.9 ? 'weapon' : 'jump';
-    const weaponTypes = ['mortar', 'multi', 'spiral', 'goose', 'love', 'random', 'penis', 'boobs', 'grandma', 'crying_baby', 'bear_poop', 'pacman', 'pokemon', 'bouncing', 'snowball'];
+    const weaponTypes = ['mortar', 'multi', 'spiral', 'goose', 'love', 'random', 'penis', 'boobs', 'grandma', 'crying_baby', 'bear_poop', 'pacman', 'pokemon', 'bouncing', 'snowball', 'captain_planet', 'foot_gun', 'flower', 'hypno_toad'];
     const jumpTypes = ['triple_jump', 'hover', 'jetpack', 'slam'];
     const type = (category === 'weapon') ? weaponTypes[Math.floor(Math.random() * weaponTypes.length)] : jumpTypes[Math.floor(Math.random() * jumpTypes.length)];
     const y = Math.random() * (canvas.height - 100) + 50;
@@ -916,30 +1526,44 @@ function handleShooting() {
     }
     if (keys['Space']) {
         const bX = player.x + player.width / 2, bY = player.y + player.height / 2;
-        if (player.powerupType === 'normal' && frameCount % 6 === 0) bullets.push(new Bullet(bX, bY, 'normal'));
-        if (player.powerupType === 'mortar' && frameCount % 20 === 0) bullets.push(new Bullet(bX, bY, 'mortar'));
-        if (player.powerupType === 'multi' && frameCount % 2 === 0) bullets.push(new Bullet(bX, bY, 'multi'));
-        if (player.powerupType === 'spiral' && frameCount % 2 === 0) bullets.push(new Bullet(bX, bY, 'spiral'));
-        if (player.powerupType === 'goose' && frameCount % 10 === 0) {
-            bullets.push(new Bullet(bX, bY, 'goose', -0.3)); bullets.push(new Bullet(bX, bY, 'goose', 0.3));
+        if (player.powerupType === 'normal' && player.shootCooldown === 0) {
+            bullets.push(new Bullet(bX, bY, 'normal'));
+            player.shootCooldown = 6;
         }
-        if (player.powerupType === 'love' && frameCount % 8 === 0) {
+        if (player.powerupType === 'mortar' && player.shootCooldown === 0) {
+            bullets.push(new Bullet(bX, bY, 'mortar'));
+            player.shootCooldown = 20;
+        }
+        if (player.powerupType === 'multi' && player.shootCooldown === 0) {
+            bullets.push(new Bullet(bX, bY, 'multi'));
+            player.shootCooldown = 2;
+        }
+        if (player.powerupType === 'spiral' && player.shootCooldown === 0) {
+            bullets.push(new Bullet(bX, bY, 'spiral'));
+            player.shootCooldown = 2;
+        }
+        if (player.powerupType === 'goose' && player.shootCooldown === 0) {
+            bullets.push(new Bullet(bX, bY, 'goose', -0.3)); bullets.push(new Bullet(bX, bY, 'goose', 0.3));
+            player.shootCooldown = 10;
+        }
+        if (player.powerupType === 'love' && player.shootCooldown === 0) {
             bullets.push(new Bullet(bX, bY, 'love'));
-            if (music && music.synths.love) music.synths.love.triggerAttackRelease('C6', '0.5s');
+            player.shootCooldown = 8;
+            if (music && music.synths.love) music.synths.love.triggerAttackRelease('C6', '0.5s', Tone.now());
         }
         if (player.powerupType === 'penis' && player.shootCooldown === 0) {
             bullets.push(new Bullet(bX, bY, 'penis'));
             player.shootCooldown = 20;
-            if (music && music.synths.penis) music.synths.penis.triggerAttackRelease('C3', '8n');
+            if (music && music.synths.penis) music.synths.penis.triggerAttackRelease('C3', '8n', Tone.now());
         }
         if (player.powerupType === 'boobs' && player.shootCooldown === 0) {
             bullets.push(new Bullet(bX, bY, 'boobs'));
             player.shootCooldown = 30;
-            if (music && music.synths.boobs) music.synths.boobs.triggerAttackRelease('G2', '16n');
+            if (music && music.synths.boobs) music.synths.boobs.triggerAttackRelease('G2', '16n', Tone.now());
         }
-        if (player.powerupType === 'grandma' && frameCount % 8 === 0) {
+        if (player.powerupType === 'grandma' && player.shootCooldown === 0) {
             bullets.push(new Bullet(bX, bY, 'grandma'));
-            if (music && music.synths.nag) music.synths.nag.triggerAttackRelease('G#5', '0.3s');
+            player.shootCooldown = 15;
         }
         if (player.powerupType === 'crying_baby' && player.shootCooldown === 0) {
             bullets.push(new Bullet(bX, bY, 'crying_baby'));
@@ -965,20 +1589,46 @@ function handleShooting() {
             bullets.push(new Bullet(bX, bY, 'snowball'));
             player.shootCooldown = 12;
         }
+        if (player.powerupType === 'captain_planet' && player.shootCooldown === 0) {
+            bullets.push(new Bullet(bX, bY, 'captain_planet'));
+            player.shootCooldown = 20;
+        }
+        if (player.powerupType === 'foot_gun' && player.shootCooldown === 0) {
+            bullets.push(new Bullet(bX, bY, 'foot_gun'));
+            player.shootCooldown = 10;
+        }
+        if (player.powerupType === 'flower' && player.shootCooldown === 0) {
+            bullets.push(new Bullet(bX, bY, 'flower'));
+            player.shootCooldown = 20;
+        }
+        if (player.powerupType === 'hypno_toad' && player.shootCooldown === 0) {
+            bullets.push(new Bullet(bX, bY, 'hypno_toad'));
+            player.shootCooldown = 40;
+        }
     }
 }
 
 function endGame() {
     gameState = 'over';
+    cancelAnimationFrame(animationFrameId);
     Tone.Transport.stop();
     if (music && music.loop) {
         music.loop.dispose();
         Object.values(music.synths).forEach(synth => synth.dispose());
         music = null;
     }
-    cancelAnimationFrame(animationFrameId);
     gameOverScreen.style.display = 'flex';
     finalScoreEl.textContent = `Final Score: ${score}`;
+    player = null;
+}
+
+function updateHealthUI() {
+    if (player) {
+        // These are now global, no need to getElementById every time
+        const healthPercentage = (player.health / player.maxHealth) * 100;
+        healthBar.style.width = `${healthPercentage}%`;
+        healthText.textContent = `${player.health}/${player.maxHealth}`;
+    }
 }
 
 // --- Event Listeners ---
@@ -1008,8 +1658,7 @@ canvas.addEventListener('touchend', (e) => {
 // UI Buttons
 startBtn.addEventListener('click', () => { if (difficulty) init(); });
 restartBtn.addEventListener('click', () => {
-    startScreen.style.display = 'flex'; gameOverScreen.style.display = 'none';
-    gameState = 'start'; drawInitialState();
+    init();
 });
 difficultySelector.addEventListener('click', (e) => {
     if (e.target.classList.contains('difficulty-btn')) {
